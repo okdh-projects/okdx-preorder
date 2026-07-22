@@ -114,3 +114,19 @@ alter publication supabase_realtime add table public.products;
 alter publication supabase_realtime add table public.orders;
 alter publication supabase_realtime add table public.promo_codes;
 alter publication supabase_realtime add table public.app_settings;
+
+-- =========================
+-- SEED PRODUCTS (only if table is empty)
+-- =========================
+insert into public.products (category, name, price, sizes, images, description, variant_label, variants)
+select * from (values
+  ('Футболки','Футболка VOID',1490,array['XS','S','M','L','XL','XXL']::text[],array['./images/tshirt-void.jpg']::text[],'Оверсайз-крой из 100% хлопка 240 г/м². Шелкография на груди.',null::text,null::text[]),
+  ('Футболки','Футболка STATIC',1290,array['S','M','L','XL']::text[],array['./images/tshirt-static.jpg']::text[],'Классический крой, плотный хлопок, минималистичный принт.',null::text,null::text[]),
+  ('Худи','Худи SIGNAL',3490,array['S','M','L','XL','XXL']::text[],array['./images/hoodie-signal.jpg']::text[],'Худи из плотного футера с начёсом. Прямой крой.',null::text,null::text[]),
+  ('Кружки','Кружка TRANSMISSION',690,array[]::text[],array['./images/mug-transmission.jpg']::text[],'Керамическая кружка с матовой печатью.','Объём',array['330 мл']::text[]),
+  ('Кружки','Кружка NOISE',790,array[]::text[],array['./images/mug-noise.jpg']::text[],'Матовая керамика, устойчивая к посудомоечной машине.','Объём',array['300 мл','500 мл']::text[]),
+  ('Значки','Значок FREQUENCY',150,array[]::text[],array['./images/badge-frequency.jpg']::text[],'Металлический значок с булавкой.','Диаметр',array['25 мм','38 мм','56 мм']::text[]),
+  ('Магниты','Магнит VOID LOGO',190,array[]::text[],array['./images/magnet-void.jpg']::text[],'Виниловый магнит с плотной подложкой.','Размер',array['60×40 мм']::text[]),
+  ('Стикеры','Стикер GLITCH',90,array[]::text[],array['./images/sticker-glitch.jpg']::text[],'Виниловый стикер с ламинацией.','Размер',array['60×60 мм','90×90 мм']::text[])
+) as v(category,name,price,sizes,images,description,variant_label,variants)
+where not exists (select 1 from public.products);
