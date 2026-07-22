@@ -1,24 +1,46 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Check } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Layout } from "../components/Layout";
-import { useStore } from "../lib/store";
+import { supabase, type ProductRow } from "../lib/supabase";
+import { useCart } from "../lib/store";
 
-export const Route = createFileRoute("/product/$id")({
-  component: ProductPage,
-});
-
-function ProductPage() {
-  const { id } = Route.useParams();
+export default function Product() {
+  const { id } = useParams();
   const navigate = useNavigate();
-  const product = useStore((s) => s.products.find((p) => p.id === id));
-  const cart = useStore((s) => s.cart);
-  const addToCart = useStore((s) => s.addToCart);
+  const [product, setProduct] = useState<ProductRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const cart = useCart((s) => s.cart);
+  const addToCart = useCart((s) => s.addToCart);
 
   const [imgIdx, setImgIdx] = useState(0);
-  const [size, setSize] = useState<string | undefined>(product?.sizes[0]);
-  const [color, setColor] = useState<string | undefined>(product?.colors[0]);
-  const [variant, setVariant] = useState<string | undefined>(product?.variants?.[0]);
+  const [size, setSize] = useState<string | undefined>();
+  const [variant, setVariant] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (!id) return;
+    supabase
+      .from("products")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setProduct(data);
+        setSize(data?.sizes?.[0]);
+        setVariant(data?.variants?.[0]);
+        setLoading(false);
+      });
+  }, [id]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="mx-auto max-w-6xl px-4 py-16 text-center text-muted-foreground">
+          Загрузка…
+        </div>
+      </Layout>
+    );
+  }
 
   if (!product) {
     return (
@@ -33,19 +55,19 @@ function ProductPage() {
     );
   }
 
-  const cartKey = `${product.id}|${size ?? ""}|${color ?? ""}|${variant ?? ""}`;
+  const finalPrice = product.sale_price ?? product.price;
+  const hasSale = product.sale_price != null && product.sale_price < product.price;
+  const cartKey = `${product.id}|${size ?? ""}|${variant ?? ""}`;
   const inCart = cart.find((c) => c.id === cartKey);
-
   const imgs = product.images.length ? product.images : [""];
 
   const handleAdd = () => {
     addToCart({
       productId: product.id,
       name: product.name,
-      price: product.price,
+      price: finalPrice,
       qty: 1,
       size,
-      color,
       variant,
       image: product.images[0],
     });
@@ -54,14 +76,7 @@ function ProductPage() {
   return (
     <Layout>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1 font-mono text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft size={14} /> Назад в каталог
-        </Link>
-
-        <div className="mt-6 grid gap-8 lg:grid-cols-2">
+        <div className="mt-2 grid gap-8 lg:grid-cols-2">
           <div className="relative overflow-hidden rounded-lg border border-border bg-neutral-900">
             <div className="aspect-square">
               {imgs[imgIdx] ? (
@@ -69,9 +84,7 @@ function ProductPage() {
                   src={imgs[imgIdx]}
                   alt={product.name}
                   className="h-full w-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
+                  onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
                 />
               ) : null}
             </div>
@@ -91,14 +104,6 @@ function ProductPage() {
                 >
                   <ChevronRight size={18} />
                 </button>
-                <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1">
-                  {imgs.map((_, i) => (
-                    <span
-                      key={i}
-                      className={`h-1 w-6 rounded-full ${i === imgIdx ? "bg-white" : "bg-white/30"}`}
-                    />
-                  ))}
-                </div>
               </>
             )}
           </div>
@@ -107,9 +112,7 @@ function ProductPage() {
             <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               {product.category}
             </div>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-              {product.name}
-            </h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{product.name}</h1>
             <p className="mt-4 text-sm text-muted-foreground">{product.description}</p>
 
             {product.sizes.length > 0 && (
@@ -135,33 +138,10 @@ function ProductPage() {
               </div>
             )}
 
-            {product.colors.length > 0 && (
-              <div className="mt-5">
-                <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                  Цвет
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {product.colors.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setColor(c)}
-                      className={`rounded-md border px-4 py-2 font-mono text-sm transition-colors ${
-                        color === c
-                          ? "border-foreground bg-foreground text-background"
-                          : "border-border hover:border-neutral-500"
-                      }`}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {product.variants && product.variants.length > 0 && (
               <div className="mt-5">
                 <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                  {product.variantLabel ?? "Вариант"}
+                  {product.variant_label ?? "Вариант"}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {product.variants.map((v) => (
@@ -190,23 +170,24 @@ function ProductPage() {
 
             <div className="mt-6 flex items-baseline gap-3">
               <div className="font-mono text-3xl font-bold">
-                {product.price.toLocaleString("ru-RU")} ₽
+                {finalPrice.toLocaleString("ru-RU")} ₽
               </div>
-              <div className="font-mono text-xs text-muted-foreground">
-                На складе: {product.stock} шт
-              </div>
+              {hasSale && (
+                <div className="font-mono text-sm text-muted-foreground line-through">
+                  {product.price.toLocaleString("ru-RU")} ₽
+                </div>
+              )}
             </div>
 
             <button
               onClick={handleAdd}
-              disabled={product.stock === 0}
-              className="mt-6 w-full rounded-md bg-white py-4 font-bold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="mt-6 w-full rounded-md bg-white py-4 font-bold text-black transition-opacity hover:opacity-90"
             >
               Добавить в корзину
             </button>
             {inCart && (
               <button
-                onClick={() => navigate({ to: "/cart" })}
+                onClick={() => navigate("/cart")}
                 className="mt-2 w-full rounded-md border border-border py-3 font-mono text-xs uppercase tracking-widest hover:bg-muted"
               >
                 Перейти в корзину →

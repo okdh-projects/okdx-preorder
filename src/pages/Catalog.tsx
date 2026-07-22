@@ -1,42 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, ShoppingBag } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { ChevronLeft, ChevronRight, Instagram, Lock, ShoppingBag } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Layout } from "../components/Layout";
 import { Logo } from "../components/Logo";
-import { useStore, type Product } from "../lib/store";
-
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "OKDX.Merch — Каталог мерча" },
-      {
-        name: "description",
-        content:
-          "Ограниченные дропы OKDX. Футболки, худи, кружки, значки, магниты и стикеры.",
-      },
-      { property: "og:title", content: "OKDX.Merch — Каталог мерча" },
-      { property: "og:description", content: "Ограниченные дропы. Только свой мерч." },
-    ],
-  }),
-  component: CatalogPage,
-});
+import { supabase, type ProductRow } from "../lib/supabase";
+import { fetchSettings, subscribeSettings, useSettings } from "../lib/settings";
 
 const heroSlides = [
-  {
-    title: "OKDX.Merch",
-    subtitle: "Ограниченные дропы. Только свой мерч.",
-    tag: "Добро пожаловать",
-  },
-  {
-    title: "Новый дроп",
-    subtitle: "Коллекция VOID уже в продаже.",
-    tag: "Новинки",
-  },
-  {
-    title: "Стикеры & значки",
-    subtitle: "Мелочи, которые говорят громко.",
-    tag: "Аксессуары",
-  },
+  { title: "OKDX.Merch", subtitle: "Ограниченные дропы. Только свой мерч.", tag: "Добро пожаловать" },
+  { title: "Новый дроп", subtitle: "Коллекция VOID уже в продаже.", tag: "Новинки" },
+  { title: "Стикеры & значки", subtitle: "Мелочи, которые говорят громко.", tag: "Аксессуары" },
 ];
 
 function Hero() {
@@ -53,9 +26,7 @@ function Hero() {
           <ChevronLeft size={18} />
         </button>
         <div className="flex-1 py-4">
-          <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            {s.tag}
-          </div>
+          <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{s.tag}</div>
           <div className="mt-3 flex items-center gap-4">
             <Logo size={56} />
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{s.title}</h1>
@@ -75,9 +46,7 @@ function Hero() {
           <button
             key={idx}
             onClick={() => setI(idx)}
-            className={`h-1 w-8 rounded-full transition-colors ${
-              idx === i ? "bg-foreground" : "bg-border"
-            }`}
+            className={`h-1 w-8 rounded-full transition-colors ${idx === i ? "bg-foreground" : "bg-border"}`}
             aria-label={`Слайд ${idx + 1}`}
           />
         ))}
@@ -86,9 +55,10 @@ function Hero() {
   );
 }
 
-function ProductCard({ p }: { p: Product }) {
+export function ProductCard({ p }: { p: ProductRow }) {
   const [idx, setIdx] = useState(0);
   const imgs = p.images.length ? p.images : [""];
+  const sale = p.sale_price != null && p.sale_price < p.price;
   return (
     <div className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-neutral-600">
       <div className="relative aspect-square bg-neutral-900">
@@ -97,11 +67,14 @@ function ProductCard({ p }: { p: Product }) {
             src={imgs[idx]}
             alt={p.name}
             className="h-full w-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
+            onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
           />
         ) : null}
+        {sale && (
+          <div className="absolute left-3 top-3 rounded-md bg-red-500 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-white">
+            Sale
+          </div>
+        )}
         {imgs.length > 1 && (
           <>
             <button
@@ -124,10 +97,22 @@ function ProductCard({ p }: { p: Product }) {
       <div className="p-4">
         <h3 className="font-bold">{p.name}</h3>
         <div className="mt-2 flex items-center justify-between">
-          <span className="font-mono text-sm">{p.price.toLocaleString("ru-RU")} ₽</span>
+          <div className="flex items-baseline gap-2">
+            {sale ? (
+              <>
+                <span className="font-mono text-sm font-bold text-red-400">
+                  {p.sale_price!.toLocaleString("ru-RU")} ₽
+                </span>
+                <span className="font-mono text-xs text-muted-foreground line-through">
+                  {p.price.toLocaleString("ru-RU")} ₽
+                </span>
+              </>
+            ) : (
+              <span className="font-mono text-sm">{p.price.toLocaleString("ru-RU")} ₽</span>
+            )}
+          </div>
           <Link
-            to="/product/$id"
-            params={{ id: p.id }}
+            to={`/product/${p.id}`}
             className="font-mono text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
           >
             Подробнее →
@@ -138,8 +123,64 @@ function ProductCard({ p }: { p: Product }) {
   );
 }
 
-function CatalogPage() {
-  const products = useStore((s) => s.products);
+function PreorderClosed() {
+  return (
+    <div className="mx-auto flex min-h-[70vh] max-w-2xl flex-col items-center justify-center px-4 py-16 text-center">
+      <Logo size={80} />
+      <Lock className="mt-6 text-muted-foreground" size={32} />
+      <h1 className="mt-6 text-3xl font-bold tracking-tight sm:text-4xl">
+        К сожалению, предзаказ мерча закончился
+      </h1>
+      <p className="mt-4 font-mono text-sm text-muted-foreground">
+        Следите за новостями в нашем Instagram — там мы объявляем следующие дропы.
+      </p>
+      <a
+        href="https://www.instagram.com/okdh.bsu/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-8 inline-flex items-center gap-2 rounded-md bg-white px-6 py-3 font-bold text-black transition-opacity hover:opacity-90"
+      >
+        <Instagram size={18} /> Открыть Instagram
+      </a>
+    </div>
+  );
+}
+
+export default function Catalog() {
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { preorderClosed, loaded } = useSettings();
+
+  useEffect(() => {
+    fetchSettings();
+    const unsub = subscribeSettings();
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from("products")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        setProducts(data ?? []);
+        setLoading(false);
+      });
+    const ch = supabase
+      .channel("products-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        supabase
+          .from("products")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .then(({ data }) => setProducts(data ?? []));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, []);
+
   const categories = useMemo(() => {
     const set = new Set(products.map((p) => p.category));
     return ["Все", ...Array.from(set)];
@@ -147,7 +188,7 @@ function CatalogPage() {
   const [active, setActive] = useState("Все");
 
   const grouped = useMemo(() => {
-    const map = new Map<string, Product[]>();
+    const map = new Map<string, ProductRow[]>();
     for (const p of products) {
       if (active !== "Все" && p.category !== active) continue;
       if (!map.has(p.category)) map.set(p.category, []);
@@ -155,6 +196,14 @@ function CatalogPage() {
     }
     return Array.from(map.entries());
   }, [products, active]);
+
+  if (loaded && preorderClosed) {
+    return (
+      <Layout>
+        <PreorderClosed />
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -177,7 +226,7 @@ function CatalogPage() {
           ))}
         </div>
 
-        {grouped.length === 0 && (
+        {!loading && grouped.length === 0 && (
           <div className="mt-16 flex flex-col items-center justify-center gap-3 text-muted-foreground">
             <ShoppingBag size={40} />
             <div className="font-mono text-sm">Товаров пока нет</div>
@@ -188,9 +237,7 @@ function CatalogPage() {
           <section key={cat} className="mt-10">
             <div className="flex items-baseline gap-3 border-b border-border pb-2">
               <h2 className="text-xl font-bold">{cat}</h2>
-              <span className="font-mono text-xs text-muted-foreground">
-                {items.length} позиций
-              </span>
+              <span className="font-mono text-xs text-muted-foreground">{items.length} позиций</span>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {items.map((p) => (
