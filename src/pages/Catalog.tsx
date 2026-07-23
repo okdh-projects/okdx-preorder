@@ -1,9 +1,9 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Instagram, Lock, ShoppingBag } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "../components/Layout";
 import { Logo } from "../components/Logo";
-import { supabase, type ProductRow } from "../lib/supabase";
+import { supabase, type ProductRow, formatMoney } from "../lib/supabase";
 import { fetchSettings, subscribeSettings, useSettings } from "../lib/settings";
 
 const heroSlides = [
@@ -14,6 +14,17 @@ const heroSlides = [
 
 function Hero() {
   const [i, setI] = useState(0);
+  const timer = useRef<number | null>(null);
+
+  useEffect(() => {
+    timer.current = window.setInterval(() => {
+      setI((v) => (v + 1) % heroSlides.length);
+    }, 5000);
+    return () => {
+      if (timer.current) window.clearInterval(timer.current);
+    };
+  }, []);
+
   const s = heroSlides[i];
   return (
     <div className="relative overflow-hidden rounded-lg border border-border bg-card">
@@ -25,7 +36,7 @@ function Hero() {
         >
           <ChevronLeft size={18} />
         </button>
-        <div className="flex-1 py-4">
+        <div className="flex-1 py-4 transition-opacity duration-500">
           <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{s.tag}</div>
           <div className="mt-3 flex items-center gap-4">
             <Logo size={56} />
@@ -55,12 +66,20 @@ function Hero() {
   );
 }
 
-export function ProductCard({ p }: { p: ProductRow }) {
+export function ProductCard({ p, showSale = false }: { p: ProductRow; showSale?: boolean }) {
+  const nav = useNavigate();
   const [idx, setIdx] = useState(0);
   const imgs = p.images.length ? p.images : [""];
-  const sale = p.sale_price != null && p.sale_price < p.price;
+  const displayPrice = showSale && p.sale_price != null ? p.sale_price : p.price;
+  const strike = showSale && p.sale_price != null && p.sale_price < p.price;
+
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
   return (
-    <div className="group overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-neutral-600">
+    <div
+      onClick={() => nav(`/product/${p.id}`)}
+      className="group cursor-pointer overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-neutral-600"
+    >
       <div className="relative aspect-square bg-neutral-900">
         {imgs[idx] ? (
           <img
@@ -70,22 +89,23 @@ export function ProductCard({ p }: { p: ProductRow }) {
             onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
           />
         ) : null}
-        {sale && (
-          <div className="absolute left-3 top-3 rounded-md bg-red-500 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-white">
-            Sale
-          </div>
-        )}
         {imgs.length > 1 && (
           <>
             <button
-              onClick={() => setIdx((idx - 1 + imgs.length) % imgs.length)}
+              onClick={(e) => {
+                stop(e);
+                setIdx((idx - 1 + imgs.length) % imgs.length);
+              }}
               className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-1 text-white opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
               aria-label="Назад"
             >
               <ChevronLeft size={16} />
             </button>
             <button
-              onClick={() => setIdx((idx + 1) % imgs.length)}
+              onClick={(e) => {
+                stop(e);
+                setIdx((idx + 1) % imgs.length);
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-1 text-white opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
               aria-label="Вперёд"
             >
@@ -98,25 +118,18 @@ export function ProductCard({ p }: { p: ProductRow }) {
         <h3 className="font-bold">{p.name}</h3>
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-baseline gap-2">
-            {sale ? (
-              <>
-                <span className="font-mono text-sm font-bold text-red-400">
-                  {p.sale_price!.toLocaleString("ru-RU")} ₽
-                </span>
-                <span className="font-mono text-xs text-muted-foreground line-through">
-                  {p.price.toLocaleString("ru-RU")} ₽
-                </span>
-              </>
-            ) : (
-              <span className="font-mono text-sm">{p.price.toLocaleString("ru-RU")} ₽</span>
+            <span className={`font-mono text-sm font-bold ${strike ? "text-red-400" : ""}`}>
+              {formatMoney(displayPrice)}
+            </span>
+            {strike && (
+              <span className="font-mono text-xs text-muted-foreground line-through">
+                {formatMoney(p.price)}
+              </span>
             )}
           </div>
-          <Link
-            to={`/product/${p.id}`}
-            className="font-mono text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
-          >
+          <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
             Подробнее →
-          </Link>
+          </span>
         </div>
       </div>
     </div>

@@ -14,6 +14,8 @@ import {
   Trash2,
   X,
   ScrollText,
+  Save,
+  DatabaseBackup,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { Header } from "../components/Header";
@@ -22,14 +24,19 @@ import { Logo } from "../components/Logo";
 import { ProductCard } from "./Catalog";
 import {
   ORDER_STATUSES,
+  PACKAGING_TYPES,
   statusColors,
   supabase,
+  formatMoney,
   type OrderRow,
   type ProductRow,
   type PromoCodeRow,
+  type PackagingType,
+  type CartItemPersisted,
 } from "../lib/supabase";
 import { fetchSettings, savePreorderClosed, useSettings } from "../lib/settings";
-import { readLogs, writeLog, clearLogs } from "../lib/logs";
+import { readLogs, writeLog, type AdminLog } from "../lib/logs";
+import { manualBackupDownload, maybeAutoBackup } from "../lib/backup";
 
 type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs";
 
@@ -46,6 +53,10 @@ export default function Admin() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (session) maybeAutoBackup();
+  }, [session]);
+
   if (checking) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
@@ -53,7 +64,6 @@ export default function Admin() {
       </div>
     );
   }
-
   if (!session) return <LoginScreen />;
   return <AdminApp email={session.user.email ?? "admin"} />;
 }
@@ -68,19 +78,13 @@ function LoginScreen() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) {
-      toast.error("Ошибка входа", { description: error.message });
-      return;
-    }
+    if (error) return toast.error("Ошибка входа", { description: error.message });
     toast.success("Вход выполнен");
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-sm rounded-lg border border-border bg-card p-8"
-      >
+      <form onSubmit={submit} className="w-full max-w-sm rounded-lg border border-border bg-card p-8">
         <div className="mb-6 flex items-center gap-3">
           <Logo size={40} />
           <div>
@@ -90,33 +94,29 @@ function LoginScreen() {
         </div>
         <div className="space-y-4">
           <div>
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Email
-            </label>
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-sm focus:border-neutral-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-sm"
             />
           </div>
           <div>
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Пароль
-            </label>
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Пароль</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-sm focus:border-neutral-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2.5 font-mono text-sm"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-white py-3 font-bold text-black transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="w-full rounded-md bg-white py-3 font-bold text-black hover:opacity-90 disabled:opacity-60"
           >
             {loading ? "Вход…" : "Войти"}
           </button>
@@ -150,7 +150,7 @@ function AdminApp({ email }: { email: string }) {
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
-                  className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-xs uppercase tracking-widest transition-colors ${
+                  className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-xs uppercase tracking-widest ${
                     tab === t.id
                       ? "border-foreground bg-foreground text-background"
                       : "border-border text-muted-foreground hover:text-foreground"
@@ -192,12 +192,10 @@ function AdminApp({ email }: { email: string }) {
 function OrdersTab({ actor }: { actor: string }) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [filter, setFilter] = useState<string>("Все");
+  const [editing, setEditing] = useState<OrderRow | null>(null);
 
   const reload = () =>
-    supabase
-      .from("orders")
-      .select("*")
-      .then(({ data }) => setOrders(data ?? []));
+    supabase.from("orders").select("*").then(({ data }) => setOrders((data ?? []) as OrderRow[]));
 
   useEffect(() => {
     reload();
@@ -217,10 +215,20 @@ function OrdersTab({ actor }: { actor: string }) {
   }, [orders, filter]);
 
   const setStatus = async (o: OrderRow, status: string) => {
+    if (status === "Оплачен" && !o.packaging) {
+      toast.error("Сначала выберите упаковку");
+      return;
+    }
     const { error } = await supabase.from("orders").update({ status }).eq("id", o.id);
     if (error) return toast.error(error.message);
-    writeLog(actor, "Изменение статуса заказа", `${o.client_name}: ${o.status} → ${status}`);
+    writeLog(actor, "Статус заказа", `${o.client_name}: ${o.status} → ${status}`);
     toast.success("Статус обновлён");
+  };
+
+  const setPackaging = async (o: OrderRow, packaging: PackagingType) => {
+    const { error } = await supabase.from("orders").update({ packaging }).eq("id", o.id);
+    if (error) return toast.error(error.message);
+    writeLog(actor, "Упаковка заказа", `${o.client_name}: ${packaging}`);
   };
 
   const remove = async (o: OrderRow) => {
@@ -237,10 +245,11 @@ function OrdersTab({ actor }: { actor: string }) {
       "created_at",
       "client_name",
       "client_contact",
-      "delivery_address",
       "items",
       "total_price",
       "status",
+      "packaging",
+      "promo_code",
     ];
     const rows = orders.map((o) =>
       [
@@ -248,12 +257,16 @@ function OrdersTab({ actor }: { actor: string }) {
         o.created_at,
         o.client_name,
         o.client_contact,
-        o.delivery_address ?? "",
         o.items
-          .map((i) => `${i.name}${i.size ? ` [${i.size}]` : ""}${i.variant ? ` (${i.variant})` : ""} × ${i.qty}`)
+          .map(
+            (i) =>
+              `${i.name}${i.size ? ` [${i.size}]` : ""}${i.variant ? ` (${i.variant})` : ""} × ${i.qty}`,
+          )
           .join("; "),
         String(o.total_price),
         o.status,
+        o.packaging ?? "",
+        o.promo_code ?? "",
       ]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
@@ -285,7 +298,7 @@ function OrdersTab({ actor }: { actor: string }) {
           <button
             key={s}
             onClick={() => setFilter(s)}
-            className={`rounded-md border px-3 py-1.5 font-mono text-xs uppercase tracking-widest transition-colors ${
+            className={`rounded-md border px-3 py-1.5 font-mono text-xs uppercase tracking-widest ${
               filter === s
                 ? "border-foreground bg-foreground text-background"
                 : "border-border text-muted-foreground hover:text-foreground"
@@ -302,16 +315,17 @@ function OrdersTab({ actor }: { actor: string }) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="font-bold">{o.client_name}</div>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">
-                  {o.client_contact}
-                </div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">{o.client_contact}</div>
                 <div className="mt-1 font-mono text-[11px] text-muted-foreground">
                   {new Date(o.created_at).toLocaleString("ru-RU")}
+                  {o.promo_code ? ` · промо: ${o.promo_code}` : ""}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span
-                  className={`rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-widest ${statusColors[o.status] ?? "border-border text-muted-foreground"}`}
+                  className={`rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-widest ${
+                    statusColors[o.status] ?? "border-border text-muted-foreground"
+                  }`}
                 >
                   {o.status}
                 </span>
@@ -326,6 +340,25 @@ function OrdersTab({ actor }: { actor: string }) {
                     </option>
                   ))}
                 </select>
+                <select
+                  value={o.packaging ?? ""}
+                  onChange={(e) => setPackaging(o, e.target.value as PackagingType)}
+                  className="rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+                >
+                  <option value="">Упаковка…</option>
+                  {PACKAGING_TYPES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setEditing(o)}
+                  className="rounded-md border border-border p-2 text-muted-foreground hover:text-foreground"
+                  aria-label="Редактировать"
+                >
+                  <Pencil size={14} />
+                </button>
                 <button
                   onClick={() => remove(o)}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-red-400"
@@ -343,14 +376,15 @@ function OrdersTab({ actor }: { actor: string }) {
                       {i.name}
                       {i.size ? ` · ${i.size}` : ""}
                       {i.variant ? ` · ${i.variant}` : ""} × {i.qty}
+                      {o.packaging ? ` · [${o.packaging}]` : ""}
                     </span>
-                    <span>{(i.price * i.qty).toLocaleString("ru-RU")} ₽</span>
+                    <span>{formatMoney(i.price * i.qty)}</span>
                   </li>
                 ))}
               </ul>
               <div className="mt-3 flex justify-between font-mono text-sm">
                 <span className="text-muted-foreground">Итого</span>
-                <span className="font-bold">{o.total_price.toLocaleString("ru-RU")} ₽</span>
+                <span className="font-bold">{formatMoney(o.total_price)}</span>
               </div>
             </div>
           </div>
@@ -360,6 +394,185 @@ function OrdersTab({ actor }: { actor: string }) {
             Заказов пока нет
           </div>
         )}
+      </div>
+
+      {editing && (
+        <OrderEditModal
+          order={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            writeLog(actor, "Редактирование заказа", editing.client_name);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function OrderEditModal({
+  order,
+  onClose,
+  onSaved,
+}: {
+  order: OrderRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [items, setItems] = useState<CartItemPersisted[]>(order.items);
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    supabase.from("products").select("*").then(({ data }) => setProducts((data ?? []) as ProductRow[]));
+  }, []);
+
+  const total = useMemo(() => items.reduce((a, b) => a + b.price * b.qty, 0), [items]);
+
+  const patch = (idx: number, upd: Partial<CartItemPersisted>) =>
+    setItems(items.map((it, i) => (i === idx ? { ...it, ...upd } : it)));
+
+  const remove = (idx: number) => setItems(items.filter((_, i) => i !== idx));
+
+  const addProduct = (p: ProductRow) => {
+    setItems([
+      ...items,
+      {
+        productId: p.id,
+        name: p.name,
+        price: p.price,
+        qty: 1,
+        size: p.sizes[0],
+        variant: p.variants?.[0],
+        image: p.images[0],
+      },
+    ]);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const { error } = await supabase
+      .from("orders")
+      .update({ items, total_price: total })
+      .eq("id", order.id);
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success("Заказ обновлён");
+    onSaved();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-card p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold">Редактирование: {order.client_name}</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {items.map((it, idx) => {
+            const p = products.find((x) => x.id === it.productId);
+            return (
+              <div key={idx} className="rounded-md border border-border p-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold">{it.name}</div>
+                  <button onClick={() => remove(idx)} className="text-muted-foreground hover:text-red-400">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="font-mono text-[10px] uppercase text-muted-foreground">Размер</label>
+                    {p && p.sizes.length ? (
+                      <select
+                        value={it.size ?? ""}
+                        onChange={(e) => patch(idx, { size: e.target.value })}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+                      >
+                        <option value="">—</option>
+                        {p.sizes.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={it.size ?? ""}
+                        onChange={(e) => patch(idx, { size: e.target.value })}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <label className="font-mono text-[10px] uppercase text-muted-foreground">Кол-во</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={it.qty}
+                      onChange={(e) => patch(idx, { qty: Math.max(1, Number(e.target.value)) })}
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-mono text-[10px] uppercase text-muted-foreground">Цена</label>
+                    <input
+                      type="number"
+                      value={it.price}
+                      onChange={(e) => patch(idx, { price: Number(e.target.value) })}
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4">
+          <label className="font-mono text-xs uppercase text-muted-foreground">Добавить товар</label>
+          <select
+            onChange={(e) => {
+              const p = products.find((x) => x.id === e.target.value);
+              if (p) addProduct(p);
+              e.target.value = "";
+            }}
+            className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+          >
+            <option value="">— выбрать —</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({formatMoney(p.price)})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
+          <div className="font-mono">
+            Итого: <span className="font-bold">{formatMoney(total)}</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 font-mono text-xs uppercase"
+            >
+              Отмена
+            </button>
+            <button
+              onClick={save}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 font-mono text-xs font-bold uppercase text-black disabled:opacity-50"
+            >
+              <Save size={14} /> Сохранить
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -389,7 +602,7 @@ function ProductsTab({ actor }: { actor: string }) {
       .from("products")
       .select("*")
       .order("created_at", { ascending: false })
-      .then(({ data }) => setProducts(data ?? []));
+      .then(({ data }) => setProducts((data ?? []) as ProductRow[]));
 
   useEffect(() => {
     reload();
@@ -507,13 +720,11 @@ function ProductsTab({ actor }: { actor: string }) {
                 <td className="p-3 font-mono text-xs">
                   {p.sale_price != null ? (
                     <div className="flex flex-col">
-                      <span className="text-red-400">{p.sale_price.toLocaleString("ru-RU")} ₽</span>
-                      <span className="text-muted-foreground line-through">
-                        {p.price.toLocaleString("ru-RU")} ₽
-                      </span>
+                      <span className="text-red-400">{formatMoney(p.sale_price)}</span>
+                      <span className="text-muted-foreground line-through">{formatMoney(p.price)}</span>
                     </div>
                   ) : (
-                    <span>{p.price.toLocaleString("ru-RU")} ₽</span>
+                    <span>{formatMoney(p.price)}</span>
                   )}
                 </td>
                 <td className="p-3 font-mono text-xs text-muted-foreground">
@@ -584,7 +795,6 @@ function ProductModal({
   const [d, setD] = useState<ProductDraft>(draft);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCat, setNewCat] = useState("");
-
   const isValid = d.name.trim() && d.category.trim() && d.price > 0;
 
   return (
@@ -602,9 +812,7 @@ function ProductModal({
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Категория
-            </label>
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Категория</label>
             {!addingCategory ? (
               <div className="mt-1 flex gap-2">
                 <select
@@ -612,11 +820,13 @@ function ProductModal({
                   onChange={(e) => setD({ ...d, category: e.target.value })}
                   className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
                 >
-                  {(categories.includes(d.category) ? categories : [d.category, ...categories]).map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
+                  {(categories.includes(d.category) ? categories : [d.category, ...categories]).map(
+                    (c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ),
+                  )}
                 </select>
                 <button
                   type="button"
@@ -629,7 +839,6 @@ function ProductModal({
             ) : (
               <div className="mt-1 flex gap-2">
                 <input
-                  type="text"
                   value={newCat}
                   onChange={(e) => setNewCat(e.target.value)}
                   placeholder="Название категории"
@@ -644,14 +853,14 @@ function ProductModal({
                       setNewCat("");
                     }
                   }}
-                  className="rounded-md bg-white px-3 font-mono text-xs uppercase tracking-widest text-black"
+                  className="rounded-md bg-white px-3 font-mono text-xs uppercase text-black"
                 >
                   OK
                 </button>
                 <button
                   type="button"
                   onClick={() => setAddingCategory(false)}
-                  className="rounded-md border border-border px-3 font-mono text-xs uppercase tracking-widest"
+                  className="rounded-md border border-border px-3 font-mono text-xs uppercase"
                 >
                   Отмена
                 </button>
@@ -660,9 +869,7 @@ function ProductModal({
           </div>
 
           <div className="sm:col-span-2">
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Название
-            </label>
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Название</label>
             <input
               type="text"
               value={d.name}
@@ -673,7 +880,7 @@ function ProductModal({
 
           <div>
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Цена, ₽
+              Цена, BYN
             </label>
             <input
               type="number"
@@ -684,14 +891,12 @@ function ProductModal({
           </div>
           <div>
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Акционная цена, ₽ (опц.)
+              Акционная цена, BYN (опц.)
             </label>
             <input
               type="number"
               value={d.sale_price ?? ""}
-              onChange={(e) =>
-                setD({ ...d, sale_price: e.target.value ? Number(e.target.value) : null })
-              }
+              onChange={(e) => setD({ ...d, sale_price: e.target.value ? Number(e.target.value) : null })}
               className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
             />
           </div>
@@ -706,10 +911,7 @@ function ProductModal({
               onChange={(e) =>
                 setD({
                   ...d,
-                  sizes: e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
+                  sizes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
                 })
               }
               placeholder="XS, S, M, L"
@@ -726,10 +928,7 @@ function ProductModal({
               onChange={(e) =>
                 setD({
                   ...d,
-                  images: e.target.value
-                    .split(/[\n,]/)
-                    .map((s) => s.trim())
-                    .filter(Boolean),
+                  images: e.target.value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
                 })
               }
               rows={3}
@@ -757,10 +956,7 @@ function ProductModal({
               type="text"
               value={(d.variants ?? []).join(", ")}
               onChange={(e) => {
-                const arr = e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean);
+                const arr = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
                 setD({ ...d, variants: arr.length ? arr : null });
               }}
               placeholder="330 мл, 500 мл"
@@ -769,9 +965,7 @@ function ProductModal({
           </div>
 
           <div className="sm:col-span-2">
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Описание
-            </label>
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Описание</label>
             <textarea
               value={d.description}
               onChange={(e) => setD({ ...d, description: e.target.value })}
@@ -823,25 +1017,35 @@ function PreviewModal({ product, onClose }: { product: ProductRow; onClose: () =
 }
 
 // ============= ANALYTICS =============
+type SortKey = "name" | "qty" | "revenue";
+
 function AnalyticsTab() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey>("qty");
 
   useEffect(() => {
-    supabase.from("orders").select("*").then(({ data }) => setOrders(data ?? []));
-    supabase.from("products").select("*").then(({ data }) => setProducts(data ?? []));
+    supabase.from("orders").select("*").then(({ data }) => setOrders((data ?? []) as OrderRow[]));
+    supabase.from("products").select("*").then(({ data }) => setProducts((data ?? []) as ProductRow[]));
   }, []);
 
   const byProduct = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; total: number; sizes: Record<string, number>; revenue: number }
+      { id: string; name: string; category: string; total: number; sizes: Record<string, number>; revenue: number }
     >();
     for (const o of orders) {
       for (const it of o.items) {
-        const entry =
-          map.get(it.productId) ??
-          { name: it.name, total: 0, sizes: {}, revenue: 0 };
+        const p = products.find((x) => x.id === it.productId);
+        const cat = p?.category ?? "Прочее";
+        const entry = map.get(it.productId) ?? {
+          id: it.productId,
+          name: it.name,
+          category: cat,
+          total: 0,
+          sizes: {},
+          revenue: 0,
+        };
         entry.total += it.qty;
         entry.revenue += it.qty * it.price;
         const key = it.size || it.variant || "—";
@@ -849,53 +1053,111 @@ function AnalyticsTab() {
         map.set(it.productId, entry);
       }
     }
-    return Array.from(map.entries());
-  }, [orders]);
+    const arr = Array.from(map.values());
+    arr.sort((a, b) => {
+      if (a.category !== b.category) return a.category.localeCompare(b.category, "ru");
+      if (sortKey === "name") return a.name.localeCompare(b.name, "ru");
+      if (sortKey === "qty") return b.total - a.total;
+      return b.revenue - a.revenue;
+    });
+    return arr;
+  }, [orders, products, sortKey]);
 
   const finance = useMemo(() => {
     const total = orders.reduce((a, b) => a + Number(b.total_price), 0);
     const count = orders.length;
     const avg = count ? total / count : 0;
-    const saleIds = new Set(products.filter((p) => p.sale_price != null).map((p) => p.id));
     const saleTotal = orders.reduce(
-      (a, o) => a + (o.items.some((i) => saleIds.has(i.productId)) ? Number(o.total_price) : 0),
+      (a, o) => a + (o.promo_code ? Number(o.total_price) : 0),
       0,
     );
     return { total, count, avg, saleTotal };
-  }, [orders, products]);
+  }, [orders]);
+
+  const packagingCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const o of orders) {
+      const key = o.packaging ?? "не выбрано";
+      c[key] = (c[key] ?? 0) + 1;
+    }
+    return c;
+  }, [orders]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <h1 className="text-3xl font-bold tracking-tight">Аналитика</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">Аналитика</h1>
+        <button
+          onClick={async () => {
+            await manualBackupDownload();
+            toast.success("Бэкап скачан");
+          }}
+          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+        >
+          <DatabaseBackup size={14} /> Создать резервную копию
+        </button>
+      </div>
 
       <section className="mt-6">
         <h2 className="text-lg font-bold">Финансовая аналитика</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-4">
-          <Stat label="Общая выручка" value={`${finance.total.toLocaleString("ru-RU")} ₽`} />
-          <Stat label="По акционным заказам" value={`${finance.saleTotal.toLocaleString("ru-RU")} ₽`} />
-          <Stat label="Средний чек" value={`${Math.round(finance.avg).toLocaleString("ru-RU")} ₽`} />
+          <Stat label="Общая выручка" value={formatMoney(finance.total)} />
+          <Stat label="По акционным заказам" value={formatMoney(finance.saleTotal)} />
+          <Stat label="Средний чек" value={formatMoney(Math.round(finance.avg))} />
           <Stat label="Всего заказов" value={String(finance.count)} />
         </div>
       </section>
 
       <section className="mt-10">
-        <h2 className="text-lg font-bold">Товарная аналитика</h2>
-        <p className="mt-1 font-mono text-xs text-muted-foreground">
-          Точные объёмы каждого размера для производства.
-        </p>
+        <h2 className="text-lg font-bold">Упаковка для сборки</h2>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full">
+            <thead className="border-b border-border bg-muted/30 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <tr>
+                <th className="p-3 text-left">Тип упаковки</th>
+                <th className="p-3 text-left">Кол-во заказов</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(packagingCounts).map(([k, n]) => (
+                <tr key={k} className="border-b border-border last:border-b-0">
+                  <td className="p-3 font-mono text-xs">{k}</td>
+                  <td className="p-3 font-mono text-xs font-bold">{n}</td>
+                </tr>
+              ))}
+              {Object.keys(packagingCounts).length === 0 && (
+                <tr>
+                  <td colSpan={2} className="p-6 text-center font-mono text-sm text-muted-foreground">
+                    Нет данных
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-bold">Товарная аналитика (группировка по категориям)</h2>
         <div className="mt-4 overflow-x-auto rounded-lg border border-border">
           <table className="w-full">
             <thead className="border-b border-border bg-muted/30 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               <tr>
-                <th className="p-3 text-left">Товар</th>
-                <th className="p-3 text-left">Всего шт</th>
-                <th className="p-3 text-left">По размерам / вариантам</th>
-                <th className="p-3 text-left">Выручка</th>
+                <th className="p-3 text-left">Категория</th>
+                <SortTh label="Товар" active={sortKey === "name"} onClick={() => setSortKey("name")} />
+                <SortTh label="Всего шт" active={sortKey === "qty"} onClick={() => setSortKey("qty")} />
+                <th className="p-3 text-left">Размеры / варианты</th>
+                <SortTh
+                  label="Выручка"
+                  active={sortKey === "revenue"}
+                  onClick={() => setSortKey("revenue")}
+                />
               </tr>
             </thead>
             <tbody>
-              {byProduct.map(([id, v]) => (
-                <tr key={id} className="border-b border-border last:border-b-0">
+              {byProduct.map((v) => (
+                <tr key={v.id} className="border-b border-border last:border-b-0">
+                  <td className="p-3 font-mono text-xs text-muted-foreground">{v.category}</td>
                   <td className="p-3 font-bold">{v.name}</td>
                   <td className="p-3 font-mono">{v.total}</td>
                   <td className="p-3 font-mono text-xs">
@@ -903,12 +1165,12 @@ function AnalyticsTab() {
                       .map(([k, n]) => `${k}: ${n}`)
                       .join(" · ")}
                   </td>
-                  <td className="p-3 font-mono text-xs">{v.revenue.toLocaleString("ru-RU")} ₽</td>
+                  <td className="p-3 font-mono text-xs">{formatMoney(v.revenue)}</td>
                 </tr>
               ))}
               {byProduct.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="p-10 text-center font-mono text-sm text-muted-foreground">
+                  <td colSpan={5} className="p-10 text-center font-mono text-sm text-muted-foreground">
                     Нет данных
                   </td>
                 </tr>
@@ -921,12 +1183,25 @@ function AnalyticsTab() {
   );
 }
 
+function SortTh({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <th className="p-3 text-left">
+      <button
+        onClick={onClick}
+        className={`font-mono text-[10px] uppercase tracking-widest ${
+          active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {label} {active ? "▾" : ""}
+      </button>
+    </th>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        {label}
-      </div>
+      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
       <div className="mt-2 font-mono text-xl font-bold">{value}</div>
     </div>
   );
@@ -942,7 +1217,7 @@ function PromoTab({ actor }: { actor: string }) {
       .from("promo_codes")
       .select("*")
       .order("created_at", { ascending: false })
-      .then(({ data }) => setCodes(data ?? []));
+      .then(({ data }) => setCodes((data ?? []) as PromoCodeRow[]));
 
   useEffect(() => {
     reload();
@@ -950,11 +1225,10 @@ function PromoTab({ actor }: { actor: string }) {
 
   const add = async () => {
     if (!newCode.trim()) return;
-    const { error } = await supabase
-      .from("promo_codes")
-      .insert({ code: newCode.trim().toUpperCase(), is_active: true });
+    const code = newCode.trim().toUpperCase();
+    const { error } = await supabase.from("promo_codes").insert({ code, is_active: true });
     if (error) return toast.error(error.message);
-    writeLog(actor, "Создание промокода", newCode.trim().toUpperCase());
+    writeLog(actor, "Создание промокода", code);
     setNewCode("");
     reload();
     toast.success("Промокод создан");
@@ -962,7 +1236,7 @@ function PromoTab({ actor }: { actor: string }) {
 
   const toggle = async (p: PromoCodeRow) => {
     await supabase.from("promo_codes").update({ is_active: !p.is_active }).eq("id", p.id);
-    writeLog(actor, "Промокод: смена активности", `${p.code} → ${!p.is_active}`);
+    writeLog(actor, "Промокод: активность", `${p.code} → ${!p.is_active}`);
     reload();
   };
 
@@ -1064,8 +1338,7 @@ function SettingsTab({ actor }: { actor: string }) {
           <div>
             <div className="font-bold">Закрыть предзаказ</div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
-              На главной странице покажется экран «К сожалению, предзаказ мерча закончился» с
-              ссылкой на Instagram. Витрина и корзина скрываются от посетителей.
+              Витрина и корзина полностью скрываются от посетителей — вместо них экран-заглушка с ссылкой на Instagram.
             </p>
           </div>
         </label>
@@ -1076,35 +1349,54 @@ function SettingsTab({ actor }: { actor: string }) {
 
 // ============= LOGS =============
 function LogsTab() {
-  const [logs, setLogs] = useState(readLogs());
+  const [logs, setLogs] = useState<AdminLog[]>([]);
+
+  const load = () => {
+    readLogs().then(setLogs);
+  };
   useEffect(() => {
-    const iv = setInterval(() => setLogs(readLogs()), 2000);
+    load();
+    const iv = setInterval(load, 5000);
     return () => clearInterval(iv);
   }, []);
+
+  const exportTxt = () => {
+    const text = logs
+      .map(
+        (l) =>
+          `[${new Date(l.ts).toLocaleString("ru-RU")}] ${l.actor} — ${l.action}${
+            l.details ? ` :: ${l.details}` : ""
+          }`,
+      )
+      .join("\n");
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `okdx-logs-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Логи (LocalStorage)</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">Логи действий</h1>
         <button
-          onClick={() => {
-            if (confirm("Очистить все логи?")) {
-              clearLogs();
-              setLogs([]);
-            }
-          }}
-          className="rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+          onClick={exportTxt}
+          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
         >
-          Очистить
+          <Download size={14} /> Экспорт в TXT
         </button>
       </div>
       <p className="mt-2 font-mono text-xs text-muted-foreground">
-        Хранятся только в этом браузере (последние 500). Не занимают место в БД.
+        Общая история для всех админов (npoint.io + Telegram-бот). Без лимитов.
       </p>
       <div className="mt-6 space-y-2">
-        {logs.map((l) => (
-          <div key={l.id} className="rounded-md border border-border bg-card p-3">
+        {logs.map((l, i) => (
+          <div key={`${l.ts}-${i}`} className="rounded-md border border-border bg-card p-3">
             <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
-              <span>{new Date(l.at).toLocaleString("ru-RU")}</span>
+              <span>{new Date(l.ts).toLocaleString("ru-RU")}</span>
               <span>{l.actor}</span>
             </div>
             <div className="mt-1 text-sm font-bold">{l.action}</div>

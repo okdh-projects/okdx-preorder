@@ -1,9 +1,10 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Layout } from "../components/Layout";
-import { supabase, type ProductRow } from "../lib/supabase";
+import { supabase, type ProductRow, formatMoney } from "../lib/supabase";
 import { useCart } from "../lib/store";
+import { fetchSettings, useSettings } from "../lib/settings";
 
 export default function Product() {
   const { id } = useParams();
@@ -12,10 +13,15 @@ export default function Product() {
   const [loading, setLoading] = useState(true);
   const cart = useCart((s) => s.cart);
   const addToCart = useCart((s) => s.addToCart);
+  const { preorderClosed, loaded } = useSettings();
 
   const [imgIdx, setImgIdx] = useState(0);
   const [size, setSize] = useState<string | undefined>();
   const [variant, setVariant] = useState<string | undefined>();
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -32,12 +38,24 @@ export default function Product() {
       });
   }, [id]);
 
+  if (loaded && preorderClosed) {
+    return (
+      <Layout>
+        <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-4 text-center">
+          <Lock className="text-muted-foreground" size={32} />
+          <h1 className="mt-4 text-2xl font-bold">Предзаказ закрыт</h1>
+          <Link to="/" className="mt-6 rounded-md border border-border px-4 py-2 font-mono text-xs uppercase">
+            На главную
+          </Link>
+        </div>
+      </Layout>
+    );
+  }
+
   if (loading) {
     return (
       <Layout>
-        <div className="mx-auto max-w-6xl px-4 py-16 text-center text-muted-foreground">
-          Загрузка…
-        </div>
+        <div className="mx-auto max-w-6xl px-4 py-16 text-center text-muted-foreground">Загрузка…</div>
       </Layout>
     );
   }
@@ -47,16 +65,14 @@ export default function Product() {
       <Layout>
         <div className="mx-auto max-w-6xl px-4 py-16 text-center">
           <p className="text-muted-foreground">Товар не найден</p>
-          <Link to="/" className="mt-4 inline-block underline">
-            Назад в каталог
-          </Link>
+          <Link to="/" className="mt-4 inline-block underline">Назад в каталог</Link>
         </div>
       </Layout>
     );
   }
 
-  const finalPrice = product.sale_price ?? product.price;
-  const hasSale = product.sale_price != null && product.sale_price < product.price;
+  // Base price only — sale price is applied only after promo code in cart.
+  const displayPrice = product.price;
   const cartKey = `${product.id}|${size ?? ""}|${variant ?? ""}`;
   const inCart = cart.find((c) => c.id === cartKey);
   const imgs = product.images.length ? product.images : [""];
@@ -65,7 +81,7 @@ export default function Product() {
     addToCart({
       productId: product.id,
       name: product.name,
-      price: finalPrice,
+      price: displayPrice,
       qty: 1,
       size,
       variant,
@@ -117,9 +133,7 @@ export default function Product() {
 
             {product.sizes.length > 0 && (
               <div className="mt-6">
-                <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                  Размер
-                </div>
+                <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Размер</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {product.sizes.map((s) => (
                     <button
@@ -163,21 +177,11 @@ export default function Product() {
 
             {inCart && (
               <div className="mt-6 flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 font-mono text-sm text-green-400">
-                <Check size={16} />В корзине: {inCart.qty} шт —{" "}
-                {(inCart.qty * inCart.price).toLocaleString("ru-RU")} ₽
+                <Check size={16} />В корзине: {inCart.qty} шт — {formatMoney(inCart.qty * inCart.price)}
               </div>
             )}
 
-            <div className="mt-6 flex items-baseline gap-3">
-              <div className="font-mono text-3xl font-bold">
-                {finalPrice.toLocaleString("ru-RU")} ₽
-              </div>
-              {hasSale && (
-                <div className="font-mono text-sm text-muted-foreground line-through">
-                  {product.price.toLocaleString("ru-RU")} ₽
-                </div>
-              )}
-            </div>
+            <div className="mt-6 font-mono text-3xl font-bold">{formatMoney(displayPrice)}</div>
 
             <button
               onClick={handleAdd}
