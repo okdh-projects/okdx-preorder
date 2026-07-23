@@ -2,12 +2,17 @@ import { Link, useLocation } from "react-router-dom";
 import { ChevronLeft, ShoppingCart } from "lucide-react";
 import { Logo } from "./Logo";
 import { useCartCount } from "../lib/store";
+import { useSettings } from "../lib/settings";
 
 export function Header() {
   const loc = useLocation();
   const count = useCartCount();
+  const { preorderClosed } = useSettings();
   const isCatalog = loc.pathname === "/";
-  const showBackOnly = loc.pathname.startsWith("/cart") || loc.pathname.startsWith("/product");
+  const isAdmin = loc.pathname.startsWith("/admin");
+  const showBackOnly =
+    !isAdmin && (loc.pathname.startsWith("/cart") || loc.pathname.startsWith("/product"));
+  const showCart = !preorderClosed && isCatalog && !isAdmin;
 
   return (
     <header className="border-b border-border">
@@ -26,7 +31,7 @@ export function Header() {
           </Link>
         )}
 
-        {isCatalog && (
+        {showCart && (
           <Link
             to="/cart"
             className="relative flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"

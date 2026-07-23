@@ -1,33 +1,19 @@
-export type AdminLog = {
-  id: string;
-  at: number;
-  actor: string;
-  action: string;
-  details?: string;
-};
+import { tgSendMessage, escapeHtml } from "./telegram";
+import { fetchRemoteLogs, pushRemoteLog, type RemoteLog } from "./npoint";
 
-const KEY = "okdx-admin-logs";
+export type AdminLog = RemoteLog;
 
-export function readLogs(): AdminLog[] {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
+// Fire-and-forget: push to npoint bin + Telegram bot.
 export function writeLog(actor: string, action: string, details?: string) {
-  const logs = readLogs();
-  logs.unshift({
-    id: crypto.randomUUID(),
-    at: Date.now(),
-    actor,
-    action,
-    details,
-  });
-  localStorage.setItem(KEY, JSON.stringify(logs.slice(0, 500)));
+  const entry: RemoteLog = { ts: Date.now(), actor, action, details };
+  pushRemoteLog(entry);
+  const msg =
+    `<b>${escapeHtml(actor)}</b>\n` +
+    `${escapeHtml(action)}` +
+    (details ? `\n<i>${escapeHtml(details)}</i>` : "");
+  tgSendMessage(msg);
 }
 
-export function clearLogs() {
-  localStorage.removeItem(KEY);
+export async function readLogs(): Promise<AdminLog[]> {
+  return await fetchRemoteLogs();
 }
