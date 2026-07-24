@@ -1393,7 +1393,7 @@ function LogsTab() {
         </button>
       </div>
       <p className="mt-2 font-mono text-xs text-muted-foreground">
-        Общая история для всех админов (npoint.io + Telegram-бот). Без лимитов.
+        Общая история для всех админов (npoint.io). Без лимитов.
       </p>
       <div className="mt-6 space-y-2">
         {logs.map((l, i) => (
