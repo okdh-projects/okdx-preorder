@@ -34,10 +34,24 @@ import {
   type PackagingType,
   type CartItemPersisted,
 } from "../lib/supabase";
-import { fetchSettings, savePreorderClosed, useSettings } from "../lib/settings";
+import {
+  fetchSettings,
+  savePreorderClosed,
+  saveContent,
+  useSettings,
+  DEFAULT_CONTENT,
+  type SiteContent,
+  type HeroSlide,
+} from "../lib/settings";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
 import { manualBackupDownload } from "../lib/backup";
-import { fetchRemoteOrderLogs, type RemoteOrderLog } from "../lib/npoint";
+import {
+  fetchRemoteOrderLogs,
+  clearRemoteLogs,
+  clearRemoteOrderLogs,
+  type RemoteOrderLog,
+} from "../lib/npoint";
+
 
 type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs" | "orderlogs";
 
