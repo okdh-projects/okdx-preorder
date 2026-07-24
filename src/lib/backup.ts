@@ -1,5 +1,4 @@
 import { supabase } from "./supabase";
-import { tgSendDocument } from "./telegram";
 
 async function collectBackup() {
   const [orders, products, promo] = await Promise.all([
@@ -29,24 +28,4 @@ export async function manualBackupDownload(): Promise<void> {
   a.download = `backup_${todayStr()}.json`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-const KEY = "okdx-last-backup";
-
-export async function maybeAutoBackup(): Promise<void> {
-  try {
-    const last = localStorage.getItem(KEY);
-    const today = todayStr();
-    if (last === today) return;
-    const data = await collectBackup();
-    const json = JSON.stringify(data);
-    const ok = await tgSendDocument(
-      `backup_${today}.json`,
-      json,
-      `Автобэкап OKDX.Merch — ${today}`,
-    );
-    if (ok) localStorage.setItem(KEY, today);
-  } catch {
-    /* ignore */
-  }
 }

@@ -6,7 +6,7 @@ import { Layout } from "../components/Layout";
 import { useCart } from "../lib/store";
 import { supabase, formatMoney, type ProductRow } from "../lib/supabase";
 import { fetchSettings, useSettings } from "../lib/settings";
-import { tgSendMessage, escapeHtml } from "../lib/telegram";
+import { pushRemoteOrderLog } from "../lib/npoint";
 
 function makeCaptcha() {
   const a = Math.floor(Math.random() * 9) + 1;
@@ -129,23 +129,21 @@ export default function Cart() {
       return;
     }
 
-    // Telegram notification about the new order
-    const itemsList = items
-      .map(
-        (i) =>
-          `• ${escapeHtml(i.name)}${i.size ? ` [${escapeHtml(i.size)}]` : ""}${
-            i.variant ? ` (${escapeHtml(i.variant)})` : ""
-          } × ${i.qty} — ${formatMoney(i.price * i.qty)}`,
-      )
-      .join("\n");
-    const msg =
-      `🆕 <b>Новый предзаказ</b>\n` +
-      `<b>Имя:</b> ${escapeHtml(name.trim())}\n` +
-      `<b>Контакт:</b> ${escapeHtml(telegram.trim())} | ${escapeHtml(phone.trim())}\n\n` +
-      `<b>Состав:</b>\n${itemsList}\n\n` +
-      `<b>Итого:</b> ${formatMoney(total)}\n` +
-      `<b>Промокод:</b> ${promoCode ? escapeHtml(promoCode) : "—"}`;
-    tgSendMessage(msg);
+    // Order log to npoint.io
+    pushRemoteOrderLog({
+      ts: Date.now(),
+      client_name: name.trim(),
+      client_contact: `${telegram.trim()} | ${phone.trim()}`,
+      total_price: total,
+      promo_code: promoCode,
+      items: items.map((i) => ({
+        name: i.name,
+        qty: i.qty,
+        price: i.price,
+        size: i.size,
+        variant: i.variant,
+      })),
+    });
 
     setPlaced(true);
     clearCart();
