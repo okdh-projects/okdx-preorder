@@ -34,10 +34,24 @@ import {
   type PackagingType,
   type CartItemPersisted,
 } from "../lib/supabase";
-import { fetchSettings, savePreorderClosed, useSettings } from "../lib/settings";
+import {
+  fetchSettings,
+  savePreorderClosed,
+  saveContent,
+  useSettings,
+  DEFAULT_CONTENT,
+  type SiteContent,
+  type HeroSlide,
+} from "../lib/settings";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
 import { manualBackupDownload } from "../lib/backup";
-import { fetchRemoteOrderLogs, type RemoteOrderLog } from "../lib/npoint";
+import {
+  fetchRemoteOrderLogs,
+  clearRemoteLogs,
+  clearRemoteOrderLogs,
+  type RemoteOrderLog,
+} from "../lib/npoint";
+
 
 type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs" | "orderlogs";
 
@@ -1307,12 +1321,18 @@ function PromoTab({ actor }: { actor: string }) {
 
 // ============= SETTINGS =============
 function SettingsTab({ actor }: { actor: string }) {
-  const { preorderClosed } = useSettings();
+  const { preorderClosed, content } = useSettings();
   const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState<SiteContent>(content);
+  const [savingContent, setSavingContent] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSettings();
   }, []);
+  useEffect(() => {
+    setDraft(content);
+  }, [content]);
 
   const toggle = async () => {
     setSaving(true);
@@ -1326,9 +1346,98 @@ function SettingsTab({ actor }: { actor: string }) {
     setSaving(false);
   };
 
+  const saveDraft = async () => {
+    setSavingContent(true);
+    try {
+      await saveContent(draft);
+      writeLog(actor, "Настройка: контент сайта", "обновлён");
+      toast.success("Контент сохранён");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setSavingContent(false);
+  };
+
+  const resetDraft = () => {
+    if (!confirm("Вернуть текст по умолчанию?")) return;
+    setDraft(DEFAULT_CONTENT);
+  };
+
+  const patchSlide = (idx: number, upd: Partial<HeroSlide>) =>
+    setDraft({
+      ...draft,
+      heroSlides: draft.heroSlides.map((s, i) => (i === idx ? { ...s, ...upd } : s)),
+    });
+  const addSlide = () =>
+    setDraft({ ...draft, heroSlides: [...draft.heroSlides, { tag: "", title: "", subtitle: "" }] });
+  const removeSlide = (idx: number) =>
+    setDraft({ ...draft, heroSlides: draft.heroSlides.filter((_, i) => i !== idx) });
+
+  const clearLogs = async () => {
+    if (!confirm("Очистить все логи действий администраторов?")) return;
+    setBusy("logs");
+    try {
+      await clearRemoteLogs();
+      writeLog(actor, "Очистка логов", "admin logs");
+      toast.success("Логи действий очищены");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setBusy(null);
+  };
+
+  const clearOrderLogs = async () => {
+    if (!confirm("Очистить логи всех заказов (внешний журнал)?")) return;
+    setBusy("orderlogs");
+    try {
+      await clearRemoteOrderLogs();
+      writeLog(actor, "Очистка логов заказов", "order logs");
+      toast.success("Логи заказов очищены");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setBusy(null);
+  };
+
+  const clearOrdersDb = async () => {
+    if (
+      !confirm(
+        "Удалить ВСЕ заказы из базы данных? Действие необратимо.\nЛоги заказов при этом не очищаются.",
+      )
+    )
+      return;
+    setBusy("orders");
+    const { error } = await supabase
+      .from("orders")
+      .delete()
+      .not("id", "is", null);
+    if (error) toast.error(error.message);
+    else {
+      writeLog(actor, "Очистка БД", "orders");
+      toast.success("Все заказы удалены");
+    }
+    setBusy(null);
+  };
+
+  const clearPromoDb = async () => {
+    if (!confirm("Удалить ВСЕ промокоды?")) return;
+    setBusy("promo");
+    const { error } = await supabase
+      .from("promo_codes")
+      .delete()
+      .not("id", "is", null);
+    if (error) toast.error(error.message);
+    else {
+      writeLog(actor, "Очистка БД", "promo_codes");
+      toast.success("Промокоды удалены");
+    }
+    setBusy(null);
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <h1 className="text-3xl font-bold tracking-tight">Настройки</h1>
+
       <div className="mt-6 rounded-lg border border-border bg-card p-6">
         <label className="flex cursor-pointer items-start gap-3">
           <input
@@ -1346,9 +1455,206 @@ function SettingsTab({ actor }: { actor: string }) {
           </div>
         </label>
       </div>
+
+      {/* Content editor */}
+      <div className="mt-6 rounded-lg border border-border bg-card p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-bold">Контент сайта</div>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              Слайдер главной, экран закрытого предзаказа, футер, чекбоксы корзины.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={resetDraft}
+              className="rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+            >
+              По умолчанию
+            </button>
+            <button
+              onClick={saveDraft}
+              disabled={savingContent}
+              className="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 font-mono text-xs font-bold uppercase text-black disabled:opacity-50"
+            >
+              <Save size={14} /> Сохранить
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Слайдер на главной ({draft.heroSlides.length})
+            </div>
+            <button
+              onClick={addSlide}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-[11px] uppercase tracking-widest hover:bg-muted"
+            >
+              <Plus size={12} /> Слайд
+            </button>
+          </div>
+          <div className="space-y-3">
+            {draft.heroSlides.map((s, idx) => (
+              <div key={idx} className="rounded-md border border-border p-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+                    Слайд #{idx + 1} · фон {idx % 2 === 0 ? "белый" : "чёрный"}
+                  </div>
+                  <button
+                    onClick={() => removeSlide(idx)}
+                    className="text-muted-foreground hover:text-red-400"
+                    aria-label="Удалить"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <input
+                    value={s.tag}
+                    onChange={(e) => patchSlide(idx, { tag: e.target.value })}
+                    placeholder="Тег"
+                    className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+                  />
+                  <input
+                    value={s.title}
+                    onChange={(e) => patchSlide(idx, { title: e.target.value })}
+                    placeholder="Заголовок"
+                    className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs sm:col-span-2"
+                  />
+                </div>
+                <input
+                  value={s.subtitle}
+                  onChange={(e) => patchSlide(idx, { subtitle: e.target.value })}
+                  placeholder="Подпись"
+                  className="mt-2 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <TextField
+            label="Заголовок «предзаказ закрыт»"
+            value={draft.preorderTitle}
+            onChange={(v) => setDraft({ ...draft, preorderTitle: v })}
+          />
+          <TextField
+            label="Подпись «предзаказ закрыт»"
+            value={draft.preorderSubtitle}
+            onChange={(v) => setDraft({ ...draft, preorderSubtitle: v })}
+          />
+          <TextField
+            label="Кнопка Instagram"
+            value={draft.preorderButton}
+            onChange={(v) => setDraft({ ...draft, preorderButton: v })}
+          />
+          <TextField
+            label="Футер: слоган"
+            value={draft.footerTagline}
+            onChange={(v) => setDraft({ ...draft, footerTagline: v })}
+          />
+          <TextField
+            label="Футер: копирайт"
+            value={draft.footerCopyright}
+            onChange={(v) => setDraft({ ...draft, footerCopyright: v })}
+          />
+          <TextField
+            label="Корзина: чекбокс #1"
+            value={draft.cartConfirm1}
+            onChange={(v) => setDraft({ ...draft, cartConfirm1: v })}
+          />
+          <TextField
+            label="Корзина: чекбокс #2"
+            value={draft.cartConfirm2}
+            onChange={(v) => setDraft({ ...draft, cartConfirm2: v })}
+          />
+        </div>
+      </div>
+
+      {/* Backup */}
+      <div className="mt-6 rounded-lg border border-border bg-card p-6">
+        <div className="font-bold">Резервная копия</div>
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          Скачать JSON со всеми товарами, заказами и промокодами.
+        </p>
+        <button
+          onClick={async () => {
+            await manualBackupDownload();
+            writeLog(actor, "Бэкап", "manual");
+            toast.success("Бэкап сохранён");
+          }}
+          className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+        >
+          <DatabaseBackup size={14} /> Скачать бэкап
+        </button>
+      </div>
+
+      {/* Danger zone */}
+      <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/5 p-6">
+        <div className="font-bold text-red-400">Опасная зона</div>
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          Операции необратимы. Перед очисткой рекомендуется скачать бэкап.
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            onClick={clearLogs}
+            disabled={busy === "logs"}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted disabled:opacity-50"
+          >
+            <Trash2 size={14} /> {busy === "logs" ? "…" : "Очистить логи действий"}
+          </button>
+          <button
+            onClick={clearOrderLogs}
+            disabled={busy === "orderlogs"}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted disabled:opacity-50"
+          >
+            <Trash2 size={14} /> {busy === "orderlogs" ? "…" : "Очистить логи заказов"}
+          </button>
+          <button
+            onClick={clearOrdersDb}
+            disabled={busy === "orders"}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 font-mono text-xs uppercase tracking-widest text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+          >
+            <Trash2 size={14} /> {busy === "orders" ? "…" : "Удалить все заказы (БД)"}
+          </button>
+          <button
+            onClick={clearPromoDb}
+            disabled={busy === "promo"}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 font-mono text-xs uppercase tracking-widest text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+          >
+            <Trash2 size={14} /> {busy === "promo" ? "…" : "Удалить все промокоды (БД)"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+
+function TextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+      />
+    </label>
+  );
+}
+
 
 // ============= LOGS =============
 function LogsTab() {

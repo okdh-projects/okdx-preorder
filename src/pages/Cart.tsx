@@ -20,7 +20,7 @@ export default function Cart() {
   const updateQty = useCart((s) => s.updateQty);
   const removeFromCart = useCart((s) => s.removeFromCart);
   const clearCart = useCart((s) => s.clearCart);
-  const { preorderClosed, loaded } = useSettings();
+  const { preorderClosed, loaded, content } = useSettings();
 
   const [name, setName] = useState("");
   const [telegram, setTelegram] = useState("");
@@ -391,7 +391,7 @@ export default function Cart() {
                     onChange={(e) => setConfirmOrder(e.target.checked)}
                     className="mt-0.5 h-4 w-4 accent-white"
                   />
-                  <span>Я подтверждаю правильность заказа и введённых данных</span>
+                  <span>{content.cartConfirm1}</span>
                 </label>
                 <label className="flex items-start gap-2 font-mono text-xs text-muted-foreground">
                   <input
@@ -400,8 +400,9 @@ export default function Cart() {
                     onChange={(e) => setConsentPd(e.target.checked)}
                     className="mt-0.5 h-4 w-4 accent-white"
                   />
-                  <span>Я согласен на обработку введённых мною персональных данных</span>
+                  <span>{content.cartConfirm2}</span>
                 </label>
+
 
                 <button
                   type="submit"

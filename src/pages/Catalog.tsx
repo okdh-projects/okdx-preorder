@@ -6,47 +6,57 @@ import { Logo } from "../components/Logo";
 import { supabase, type ProductRow, formatMoney } from "../lib/supabase";
 import { fetchSettings, subscribeSettings, useSettings } from "../lib/settings";
 
-const heroSlides = [
-  { title: "OKDX.Merch", subtitle: "Ограниченные дропы. Только свой мерч.", tag: "Добро пожаловать" },
-  { title: "Новый дроп", subtitle: "Коллекция VOID уже в продаже.", tag: "Новинки" },
-  { title: "Стикеры & значки", subtitle: "Мелочи, которые говорят громко.", tag: "Аксессуары" },
-];
-
 function Hero() {
+  const { content } = useSettings();
+  const heroSlides = content.heroSlides;
   const [i, setI] = useState(0);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
+    if (heroSlides.length <= 1) return;
     timer.current = window.setInterval(() => {
       setI((v) => (v + 1) % heroSlides.length);
     }, 5000);
     return () => {
       if (timer.current) window.clearInterval(timer.current);
     };
-  }, []);
+  }, [heroSlides.length]);
 
-  const s = heroSlides[i];
+  useEffect(() => {
+    if (i >= heroSlides.length) setI(0);
+  }, [heroSlides.length, i]);
+
+  if (!heroSlides.length) return null;
+  const s = heroSlides[i] ?? heroSlides[0];
+  const isLight = i % 2 === 0;
+  const bg = isLight ? "bg-white text-black" : "bg-black text-white";
+  const muted = isLight ? "text-neutral-600" : "text-neutral-400";
+  const btnBorder = isLight ? "border-black/20 hover:text-black" : "border-white/20 hover:text-white";
+  const btnText = isLight ? "text-black/60" : "text-white/60";
+  const dotActive = isLight ? "bg-black" : "bg-white";
+  const dotIdle = isLight ? "bg-black/20" : "bg-white/20";
+
   return (
-    <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+    <div className={`relative overflow-hidden rounded-lg border border-border transition-colors duration-500 ${bg}`}>
       <div className="flex items-center gap-4 p-6 sm:p-10">
         <button
           onClick={() => setI((i - 1 + heroSlides.length) % heroSlides.length)}
-          className="hidden shrink-0 rounded-md border border-border p-2 text-muted-foreground hover:text-foreground sm:block"
+          className={`hidden shrink-0 rounded-md border p-2 sm:block ${btnBorder} ${btnText}`}
           aria-label="Назад"
         >
           <ChevronLeft size={18} />
         </button>
         <div className="flex-1 py-4 transition-opacity duration-500">
-          <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{s.tag}</div>
+          <div className={`font-mono text-xs uppercase tracking-widest ${muted}`}>{s.tag}</div>
           <div className="mt-3 flex items-center gap-4">
             <Logo size={56} />
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{s.title}</h1>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">{s.subtitle}</p>
+          <p className={`mt-2 text-sm ${muted}`}>{s.subtitle}</p>
         </div>
         <button
           onClick={() => setI((i + 1) % heroSlides.length)}
-          className="hidden shrink-0 rounded-md border border-border p-2 text-muted-foreground hover:text-foreground sm:block"
+          className={`hidden shrink-0 rounded-md border p-2 sm:block ${btnBorder} ${btnText}`}
           aria-label="Вперёд"
         >
           <ChevronRight size={18} />
@@ -57,7 +67,7 @@ function Hero() {
           <button
             key={idx}
             onClick={() => setI(idx)}
-            className={`h-1 w-8 rounded-full transition-colors ${idx === i ? "bg-foreground" : "bg-border"}`}
+            className={`h-1 w-8 rounded-full transition-colors ${idx === i ? dotActive : dotIdle}`}
             aria-label={`Слайд ${idx + 1}`}
           />
         ))}
@@ -65,6 +75,7 @@ function Hero() {
     </div>
   );
 }
+
 
 export function ProductCard({ p, showSale = false }: { p: ProductRow; showSale?: boolean }) {
   const nav = useNavigate();
@@ -137,27 +148,25 @@ export function ProductCard({ p, showSale = false }: { p: ProductRow; showSale?:
 }
 
 function PreorderClosed() {
+  const { content } = useSettings();
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-2xl flex-col items-center justify-center px-4 py-16 text-center">
       <Logo size={80} />
       <Lock className="mt-6 text-muted-foreground" size={32} />
-      <h1 className="mt-6 text-3xl font-bold tracking-tight sm:text-4xl">
-        К сожалению, предзаказ мерча закончился
-      </h1>
-      <p className="mt-4 font-mono text-sm text-muted-foreground">
-        Следите за новостями в нашем Instagram — там мы объявляем следующие дропы.
-      </p>
+      <h1 className="mt-6 text-3xl font-bold tracking-tight sm:text-4xl">{content.preorderTitle}</h1>
+      <p className="mt-4 font-mono text-sm text-muted-foreground">{content.preorderSubtitle}</p>
       <a
         href="https://www.instagram.com/okdh.bsu/"
         target="_blank"
         rel="noopener noreferrer"
         className="mt-8 inline-flex items-center gap-2 rounded-md bg-white px-6 py-3 font-bold text-black transition-opacity hover:opacity-90"
       >
-        <Instagram size={18} /> Открыть Instagram
+        <Instagram size={18} /> {content.preorderButton}
       </a>
     </div>
   );
 }
+
 
 export default function Catalog() {
   const [products, setProducts] = useState<ProductRow[]>([]);

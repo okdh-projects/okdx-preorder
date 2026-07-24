@@ -78,3 +78,20 @@ export async function pushRemoteOrderLog(order: RemoteOrderLog): Promise<void> {
     /* ignore */
   }
 }
+
+export async function clearRemoteLogs(): Promise<void> {
+  await fetch(LOGS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ logs: [] }),
+  });
+}
+
+export async function clearRemoteOrderLogs(): Promise<void> {
+  await fetch(ORDERS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orders: [] }),
+  });
+}
+
