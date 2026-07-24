@@ -36,7 +36,8 @@ import {
 } from "../lib/supabase";
 import { fetchSettings, savePreorderClosed, useSettings } from "../lib/settings";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
-import { manualBackupDownload, maybeAutoBackup } from "../lib/backup";
+import { manualBackupDownload } from "../lib/backup";
+import { fetchRemoteOrderLogs, type RemoteOrderLog } from "../lib/npoint";
 
 type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs";
 
