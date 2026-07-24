@@ -6,7 +6,7 @@ import { Layout } from "../components/Layout";
 import { useCart } from "../lib/store";
 import { supabase, formatMoney, type ProductRow } from "../lib/supabase";
 import { fetchSettings, useSettings } from "../lib/settings";
-import { tgSendMessage, escapeHtml } from "../lib/telegram";
+import { pushRemoteOrderLog } from "../lib/npoint";
 
 function makeCaptcha() {
   const a = Math.floor(Math.random() * 9) + 1;
