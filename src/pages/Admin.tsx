@@ -184,6 +184,7 @@ function AdminApp({ email }: { email: string }) {
         {tab === "promo" && <PromoTab actor={email} />}
         {tab === "settings" && <SettingsTab actor={email} />}
         {tab === "logs" && <LogsTab />}
+        {tab === "orderlogs" && <OrderLogsTab />}
       </main>
       <Footer />
     </div>
