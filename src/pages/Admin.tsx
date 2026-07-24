@@ -39,7 +39,7 @@ import { readLogs, writeLog, type AdminLog } from "../lib/logs";
 import { manualBackupDownload } from "../lib/backup";
 import { fetchRemoteOrderLogs, type RemoteOrderLog } from "../lib/npoint";
 
-type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs";
+type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs" | "orderlogs";
 
 export default function Admin() {
   const [session, setSession] = useState<Session | null>(null);
