@@ -1417,3 +1417,75 @@ function LogsTab() {
     </div>
   );
 }
+
+// ============= ORDER LOGS =============
+function OrderLogsTab() {
+  const [orders, setOrders] = useState<RemoteOrderLog[]>([]);
+
+  const load = () => {
+    fetchRemoteOrderLogs().then(setOrders);
+  };
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(orders, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `okdx-order-logs-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">Логи заказов</h1>
+        <button
+          onClick={exportJson}
+          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+        >
+          <Download size={14} /> Экспорт JSON
+        </button>
+      </div>
+      <p className="mt-2 font-mono text-xs text-muted-foreground">
+        История всех оформленных заказов (npoint.io, бин 90ed529dc0763be76ae5).
+      </p>
+      <div className="mt-6 space-y-3">
+        {orders.map((o, i) => (
+          <div key={`${o.ts}-${i}`} className="rounded-md border border-border bg-card p-4">
+            <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
+              <span>{new Date(o.ts).toLocaleString("ru-RU")}</span>
+              <span>{formatMoney(o.total_price)}</span>
+            </div>
+            <div className="mt-1 text-sm font-bold">{o.client_name}</div>
+            <div className="font-mono text-xs text-muted-foreground">{o.client_contact}</div>
+            {o.promo_code && (
+              <div className="mt-1 font-mono text-xs text-green-400">Промо: {o.promo_code}</div>
+            )}
+            <ul className="mt-2 space-y-1 font-mono text-xs">
+              {o.items.map((it, j) => (
+                <li key={j}>
+                  • {it.name}
+                  {it.size ? ` [${it.size}]` : ""}
+                  {it.variant ? ` (${it.variant})` : ""} × {it.qty} — {formatMoney(it.price * it.qty)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {orders.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border p-10 text-center font-mono text-sm text-muted-foreground">
+            Заказов пока нет
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
