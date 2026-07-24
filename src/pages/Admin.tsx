@@ -55,7 +55,7 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
-    if (session) maybeAutoBackup();
+    // no-op (auto-backup removed with Telegram integration)
   }, [session]);
 
   if (checking) {
