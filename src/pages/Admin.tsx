@@ -137,6 +137,7 @@ function AdminApp({ email }: { email: string }) {
     { id: "promo", label: "Промокоды", icon: Ticket },
     { id: "settings", label: "Настройки", icon: SettingsIcon },
     { id: "logs", label: "Логи", icon: ScrollText },
+    { id: "orderlogs", label: "Логи заказов", icon: ShoppingBag },
   ];
 
   return (
