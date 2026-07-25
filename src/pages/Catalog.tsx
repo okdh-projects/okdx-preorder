@@ -29,15 +29,39 @@ function Hero() {
   if (!heroSlides.length) return null;
   const s = heroSlides[i] ?? heroSlides[0];
   const isLight = i % 2 === 0;
-  const bg = isLight ? "bg-white text-black" : "bg-black text-white";
-  const muted = isLight ? "text-neutral-600" : "text-neutral-400";
-  const btnBorder = isLight ? "border-black/20 hover:text-black" : "border-white/20 hover:text-white";
-  const btnText = isLight ? "text-black/60" : "text-white/60";
-  const dotActive = isLight ? "bg-black" : "bg-white";
-  const dotIdle = isLight ? "bg-black/20" : "bg-white/20";
+  const hasBg = !!content.heroBackground;
+  const bg = hasBg
+    ? "text-white"
+    : isLight
+      ? "bg-white text-black"
+      : "bg-black text-white";
+  const muted = hasBg
+    ? "text-white/70"
+    : isLight
+      ? "text-neutral-600"
+      : "text-neutral-400";
+  const btnBorder = hasBg
+    ? "border-white/30 hover:text-white"
+    : isLight
+      ? "border-black/20 hover:text-black"
+      : "border-white/20 hover:text-white";
+  const btnText = hasBg ? "text-white/70" : isLight ? "text-black/60" : "text-white/60";
+  const dotActive = hasBg || !isLight ? "bg-white" : "bg-black";
+  const dotIdle = hasBg || !isLight ? "bg-white/20" : "bg-black/20";
 
   return (
-    <div className={`relative overflow-hidden rounded-lg border border-border transition-colors duration-500 ${bg}`}>
+    <div
+      className={`relative overflow-hidden rounded-lg border border-border transition-colors duration-500 ${bg}`}
+      style={
+        hasBg
+          ? {
+              backgroundImage: `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url("${content.heroBackground}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : undefined
+      }
+    >
       <div className="flex items-center gap-4 p-6 sm:p-10">
         <button
           onClick={() => setI((i - 1 + heroSlides.length) % heroSlides.length)}
