@@ -44,10 +44,14 @@ export type OrderRow = {
   promo_code: string | null;
 };
 
+export type PromoDiscountType = "sale_price" | "percent";
+
 export type PromoCodeRow = {
   id: string;
   code: string;
   is_active: boolean;
+  discount_type: PromoDiscountType;
+  discount_percent: number | null;
   created_at?: string;
 };
 
