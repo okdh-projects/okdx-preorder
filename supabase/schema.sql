@@ -64,13 +64,8 @@ create table if not exists public.promo_codes (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   code text not null unique,
-  is_active boolean not null default true,
-  discount_type text not null default 'sale_price',
-  discount_percent numeric
+  is_active boolean not null default true
 );
-
-alter table public.promo_codes add column if not exists discount_type text not null default 'sale_price';
-alter table public.promo_codes add column if not exists discount_percent numeric;
 
 grant select on public.promo_codes to anon;
 grant select, insert, update, delete on public.promo_codes to authenticated;
