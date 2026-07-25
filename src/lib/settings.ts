@@ -5,6 +5,7 @@ export type HeroSlide = { tag: string; title: string; subtitle: string };
 
 export type SiteContent = {
   heroSlides: HeroSlide[];
+  heroBackground: string;
   preorderTitle: string;
   preorderSubtitle: string;
   preorderButton: string;
@@ -20,6 +21,7 @@ export const DEFAULT_CONTENT: SiteContent = {
     { tag: "Новинки", title: "Новый дроп", subtitle: "Коллекция VOID уже в продаже." },
     { tag: "Аксессуары", title: "Стикеры & значки", subtitle: "Мелочи, которые говорят громко." },
   ],
+  heroBackground: "",
   preorderTitle: "К сожалению, предзаказ мерча закончился",
   preorderSubtitle: "Следите за новостями в нашем Instagram — там мы объявляем следующие дропы.",
   preorderButton: "Открыть Instagram",
