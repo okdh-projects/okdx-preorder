@@ -213,6 +213,7 @@ function AdminApp({ email }: { email: string }) {
 function OrdersTab({ actor }: { actor: string }) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [filter, setFilter] = useState<string>("Все");
+  const [assembledSearch, setAssembledSearch] = useState("");
   const [editing, setEditing] = useState<OrderRow | null>(null);
 
   const reload = () =>
