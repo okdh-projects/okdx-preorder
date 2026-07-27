@@ -233,8 +233,13 @@ function OrdersTab({ actor }: { actor: string }) {
   const sorted = useMemo(() => {
     const arr = [...orders];
     arr.sort((a, b) => a.client_name.localeCompare(b.client_name, "ru"));
-    return filter === "Все" ? arr : arr.filter((o) => o.status === filter);
-  }, [orders, filter]);
+    let out = filter === "Все" ? arr : arr.filter((o) => o.status === filter);
+    if (filter === "Собран" && assembledSearch.trim()) {
+      const q = assembledSearch.trim().toLowerCase();
+      out = out.filter((o) => o.client_name.toLowerCase().includes(q));
+    }
+    return out;
+  }, [orders, filter, assembledSearch]);
 
   const setStatus = async (o: OrderRow, status: string) => {
     if (status === "Оплачен" && !o.packaging) {
