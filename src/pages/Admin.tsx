@@ -1689,7 +1689,7 @@ function SettingsTab({ actor }: { actor: string }) {
                     >
                       <option value="">— не выбрано —</option>
                       {categories.map((c) => (
-                        <option key={c} value={`#cat-${catSlug(c)}`}>
+                        <option key={c} value={`#${catSlug(c)}`}>
                           {c}
                         </option>
                       ))}
@@ -1701,6 +1701,7 @@ function SettingsTab({ actor }: { actor: string }) {
                     </span>
                     <input
                       value={s.link && !s.link.startsWith("#cat-") ? s.link : ""}
+
                       onChange={(e) =>
                         patchSlide(idx, { link: e.target.value || undefined })
                       }
