@@ -1873,6 +1873,11 @@ function TextField({
 // ============= LOGS =============
 function LogsTab() {
   const [logs, setLogs] = useState<AdminLog[]>([]);
+  const [actorFilter, setActorFilter] = useState("");
+  const [actionFilter, setActionFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [query, setQuery] = useState("");
 
   const load = () => {
     readLogs().then(setLogs);
@@ -1883,8 +1888,33 @@ function LogsTab() {
     return () => clearInterval(iv);
   }, []);
 
+  const actors = useMemo(
+    () => Array.from(new Set(logs.map((l) => l.actor))).sort(),
+    [logs],
+  );
+  const actions = useMemo(
+    () => Array.from(new Set(logs.map((l) => l.action))).sort(),
+    [logs],
+  );
+
+  const filtered = useMemo(() => {
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
+    const toTs = dateTo ? new Date(dateTo).getTime() + 24 * 3600 * 1000 : Infinity;
+    const q = query.trim().toLowerCase();
+    return logs.filter((l) => {
+      if (actorFilter && l.actor !== actorFilter) return false;
+      if (actionFilter && l.action !== actionFilter) return false;
+      if (l.ts < fromTs || l.ts > toTs) return false;
+      if (q) {
+        const hay = `${l.actor} ${l.action} ${l.details ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [logs, actorFilter, actionFilter, dateFrom, dateTo, query]);
+
   const exportTxt = () => {
-    const text = logs
+    const text = filtered
       .map(
         (l) =>
           `[${new Date(l.ts).toLocaleString("ru-RU")}] ${l.actor} — ${l.action}${
@@ -1901,6 +1931,14 @@ function LogsTab() {
     URL.revokeObjectURL(url);
   };
 
+  const resetFilters = () => {
+    setActorFilter("");
+    setActionFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setQuery("");
+  };
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1915,8 +1953,67 @@ function LogsTab() {
       <p className="mt-2 font-mono text-xs text-muted-foreground">
         Общая история для всех админов (npoint.io). Без лимитов.
       </p>
-      <div className="mt-6 space-y-2">
-        {logs.map((l, i) => (
+
+      <div className="mt-4 grid gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-5">
+        <select
+          value={actorFilter}
+          onChange={(e) => setActorFilter(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        >
+          <option value="">Все админы</option>
+          {actors.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <select
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        >
+          <option value="">Все действия</option>
+          {actions.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <div className="flex items-center gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск…"
+            className="w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+          />
+          <button
+            onClick={resetFilters}
+            className="rounded-md border border-border px-2 py-2 text-muted-foreground hover:text-foreground"
+            aria-label="Сброс"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 font-mono text-[11px] text-muted-foreground">
+        Показано: {filtered.length} из {logs.length}
+      </div>
+
+      <div className="mt-2 space-y-2">
+        {filtered.map((l, i) => (
           <div key={`${l.ts}-${i}`} className="rounded-md border border-border bg-card p-3">
             <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
               <span>{new Date(l.ts).toLocaleString("ru-RU")}</span>
@@ -1928,9 +2025,9 @@ function LogsTab() {
             )}
           </div>
         ))}
-        {logs.length === 0 && (
+        {filtered.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-10 text-center font-mono text-sm text-muted-foreground">
-            Логов пока нет
+            Ничего не найдено
           </div>
         )}
       </div>
@@ -1941,6 +2038,10 @@ function LogsTab() {
 // ============= ORDER LOGS =============
 function OrderLogsTab() {
   const [orders, setOrders] = useState<RemoteOrderLog[]>([]);
+  const [query, setQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [onlyPromo, setOnlyPromo] = useState(false);
 
   const load = () => {
     fetchRemoteOrderLogs().then(setOrders);
@@ -1951,8 +2052,23 @@ function OrderLogsTab() {
     return () => clearInterval(iv);
   }, []);
 
+  const filtered = useMemo(() => {
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
+    const toTs = dateTo ? new Date(dateTo).getTime() + 24 * 3600 * 1000 : Infinity;
+    const q = query.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (o.ts < fromTs || o.ts > toTs) return false;
+      if (onlyPromo && !o.promo_code) return false;
+      if (q) {
+        const hay = `${o.client_name} ${o.client_contact} ${o.promo_code ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [orders, query, dateFrom, dateTo, onlyPromo]);
+
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(orders, null, 2)], {
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -1977,8 +2093,43 @@ function OrderLogsTab() {
       <p className="mt-2 font-mono text-xs text-muted-foreground">
         История всех оформленных заказов (npoint.io, бин 90ed529dc0763be76ae5).
       </p>
-      <div className="mt-6 space-y-3">
-        {orders.map((o, i) => (
+
+      <div className="mt-4 grid gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-4">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по ФИО / контакту / промо"
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs sm:col-span-2"
+        />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <label className="flex items-center gap-2 font-mono text-xs text-muted-foreground sm:col-span-4">
+          <input
+            type="checkbox"
+            checked={onlyPromo}
+            onChange={(e) => setOnlyPromo(e.target.checked)}
+            className="accent-white"
+          />
+          Только с промокодом
+        </label>
+      </div>
+
+      <div className="mt-4 font-mono text-[11px] text-muted-foreground">
+        Показано: {filtered.length} из {orders.length}
+      </div>
+
+      <div className="mt-2 space-y-3">
+        {filtered.map((o, i) => (
           <div key={`${o.ts}-${i}`} className="rounded-md border border-border bg-card p-4">
             <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
               <span>{new Date(o.ts).toLocaleString("ru-RU")}</span>
@@ -2000,12 +2151,77 @@ function OrderLogsTab() {
             </ul>
           </div>
         ))}
-        {orders.length === 0 && (
+        {filtered.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-10 text-center font-mono text-sm text-muted-foreground">
-            Заказов пока нет
+            Ничего не найдено
           </div>
         )}
       </div>
     </div>
   );
 }
+
+// ============= IMAGE INPUT =============
+function ImageInput({
+  value,
+  onChange,
+  onRemove,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onRemove?: () => void;
+}) {
+  const isPublic = value.startsWith("/images/") || value.startsWith("./images/");
+  const currentLocal = isPublic
+    ? PUBLIC_IMAGES.find((f) => value.endsWith(f)) ?? ""
+    : "";
+  return (
+    <div className="rounded-md border border-border bg-background p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={currentLocal}
+          onChange={(e) => {
+            if (e.target.value) onChange(publicImageUrl(e.target.value));
+          }}
+          className="min-w-[10rem] rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+        >
+          <option value="">— выбрать из public/images —</option>
+          {PUBLIC_IMAGES.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="или https://…"
+          className="flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+        />
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-md border border-border p-1 text-muted-foreground hover:text-red-400"
+            aria-label="Удалить"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+      {value && (
+        <div className="mt-2 flex items-center gap-2">
+          <img
+            src={value}
+            alt=""
+            className="h-14 w-14 rounded-md object-cover"
+            onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.2")}
+          />
+          <div className="truncate font-mono text-[10px] text-muted-foreground">{value}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
