@@ -12,8 +12,10 @@ import {
   ShoppingBag,
   Ticket,
   Trash2,
+  Upload,
   X,
   ScrollText,
+  Search,
   Save,
   DatabaseBackup,
 } from "lucide-react";
@@ -31,6 +33,7 @@ import {
   type OrderRow,
   type ProductRow,
   type PromoCodeRow,
+  type PromoDiscountType,
   type PackagingType,
   type CartItemPersisted,
 } from "../lib/supabase";
@@ -51,6 +54,7 @@ import {
   clearRemoteOrderLogs,
   type RemoteOrderLog,
 } from "../lib/npoint";
+import { PUBLIC_IMAGES, publicImageUrl, catSlug } from "../lib/publicImages";
 
 
 type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs" | "orderlogs";
