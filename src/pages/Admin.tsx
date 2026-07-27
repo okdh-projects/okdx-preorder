@@ -47,7 +47,7 @@ import {
   type HeroSlide,
 } from "../lib/settings";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
-import { manualBackupDownload } from "../lib/backup";
+import { manualBackupDownload, restoreBackup } from "../lib/backup";
 import {
   fetchRemoteOrderLogs,
   clearRemoteLogs,
