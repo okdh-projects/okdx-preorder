@@ -100,7 +100,7 @@ export default function Cart() {
 
   const total = useMemo(
     () => cart.reduce((a, b) => a + linePrice(b.productId, b.price) * b.qty, 0),
-    [cart, promoCode, salePrices],
+    [cart, promoCode, promoType, promoPercent, salePrices],
   );
   const baseTotal = useMemo(() => cart.reduce((a, b) => a + b.price * b.qty, 0), [cart]);
   const discount = baseTotal - total;
