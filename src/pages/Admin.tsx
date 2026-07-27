@@ -336,6 +336,28 @@ function OrdersTab({ actor }: { actor: string }) {
         ))}
       </div>
 
+      {filter === "Собран" && (
+        <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
+          <Search size={14} className="text-muted-foreground" />
+          <input
+            value={assembledSearch}
+            onChange={(e) => setAssembledSearch(e.target.value)}
+            placeholder="Быстрый поиск по ФИО в собранных…"
+            className="flex-1 bg-transparent font-mono text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {assembledSearch && (
+            <button
+              onClick={() => setAssembledSearch("")}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Очистить"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
+
       <div className="mt-6 space-y-3">
         {sorted.map((o) => (
           <div key={o.id} className="rounded-lg border border-border bg-card p-5">
