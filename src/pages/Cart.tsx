@@ -37,6 +37,8 @@ export default function Cart() {
   const [promoInput, setPromoInput] = useState("");
   const [promoCode, setPromoCode] = useState<string | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
+  const [promoType, setPromoType] = useState<"percent" | "sale_price" | null>(null);
+  const [promoPercent, setPromoPercent] = useState<number>(0);
   const [salePrices, setSalePrices] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export default function Cart() {
     setPromoLoading(true);
     const { data } = await supabase
       .from("promo_codes")
-      .select("code, is_active")
+      .select("code, is_active, discount_type, discount_percent")
       .eq("code", code)
       .eq("is_active", true)
       .maybeSingle();
@@ -58,17 +60,24 @@ export default function Cart() {
       toast.error("Промокод не найден или не активен");
       return;
     }
-    // Load sale_prices for cart products
-    const ids = Array.from(new Set(cart.map((c) => c.productId)));
-    const { data: prods } = await supabase
-      .from("products")
-      .select("id, sale_price")
-      .in("id", ids);
-    const sp: Record<string, number> = {};
-    (prods ?? []).forEach((p: Pick<ProductRow, "id" | "sale_price">) => {
-      if (p.sale_price != null) sp[p.id] = Number(p.sale_price);
-    });
-    setSalePrices(sp);
+    const type = (data.discount_type as "percent" | "sale_price") ?? "sale_price";
+    if (type === "sale_price") {
+      const ids = Array.from(new Set(cart.map((c) => c.productId)));
+      const { data: prods } = await supabase
+        .from("products")
+        .select("id, sale_price")
+        .in("id", ids);
+      const sp: Record<string, number> = {};
+      (prods ?? []).forEach((p: Pick<ProductRow, "id" | "sale_price">) => {
+        if (p.sale_price != null) sp[p.id] = Number(p.sale_price);
+      });
+      setSalePrices(sp);
+      setPromoPercent(0);
+    } else {
+      setSalePrices({});
+      setPromoPercent(Number(data.discount_percent) || 0);
+    }
+    setPromoType(type);
     setPromoCode(code);
     setPromoLoading(false);
     toast.success(`Промокод ${code} применён`);
@@ -76,11 +85,18 @@ export default function Cart() {
 
   const removePromo = () => {
     setPromoCode(null);
+    setPromoType(null);
+    setPromoPercent(0);
     setSalePrices({});
   };
 
-  const linePrice = (productId: string, basePrice: number) =>
-    promoCode && salePrices[productId] != null ? salePrices[productId] : basePrice;
+  const linePrice = (productId: string, basePrice: number) => {
+    if (!promoCode) return basePrice;
+    if (promoType === "percent") {
+      return Math.max(0, Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100);
+    }
+    return salePrices[productId] != null ? salePrices[productId] : basePrice;
+  };
 
   const total = useMemo(
     () => cart.reduce((a, b) => a + linePrice(b.productId, b.price) * b.qty, 0),
