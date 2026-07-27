@@ -301,7 +301,7 @@ export default function Catalog() {
         )}
 
         {grouped.map(([cat, items]) => (
-          <section key={cat} className="mt-10">
+          <section key={cat} id={catSlug(cat)} className="mt-10 scroll-mt-24">
             <div className="flex items-baseline gap-3 border-b border-border pb-2">
               <h2 className="text-xl font-bold">{cat}</h2>
               <span className="font-mono text-xs text-muted-foreground">{items.length} позиций</span>
