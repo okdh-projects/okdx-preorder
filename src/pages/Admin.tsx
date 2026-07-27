@@ -1758,19 +1758,52 @@ function SettingsTab({ actor }: { actor: string }) {
       <div className="mt-6 rounded-lg border border-border bg-card p-6">
         <div className="font-bold">Резервная копия</div>
         <p className="mt-1 font-mono text-xs text-muted-foreground">
-          Скачать JSON со всеми товарами, заказами и промокодами.
+          Скачать JSON со всеми товарами, заказами и промокодами. Восстановление вставит
+          записи через upsert (существующие ID перезапишутся).
         </p>
-        <button
-          onClick={async () => {
-            await manualBackupDownload();
-            writeLog(actor, "Бэкап", "manual");
-            toast.success("Бэкап сохранён");
-          }}
-          className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
-        >
-          <DatabaseBackup size={14} /> Скачать бэкап
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={async () => {
+              await manualBackupDownload();
+              writeLog(actor, "Бэкап", "manual");
+              toast.success("Бэкап сохранён");
+            }}
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+          >
+            <DatabaseBackup size={14} /> Скачать бэкап
+          </button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted">
+            <Upload size={14} /> {restoring ? "Восстановление…" : "Восстановить из файла"}
+            <input
+              type="file"
+              accept="application/json"
+              className="hidden"
+              disabled={restoring}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (!confirm(`Восстановить данные из ${file.name}? Записи с совпадающими ID будут перезаписаны.`)) {
+                  e.target.value = "";
+                  return;
+                }
+                setRestoring(true);
+                try {
+                  const text = await file.text();
+                  const res = await restoreBackup(text);
+                  writeLog(actor, "Восстановление бэкапа", `${file.name} · ${res}`);
+                  toast.success(`Восстановлено: ${res}`);
+                } catch (err) {
+                  toast.error((err as Error).message);
+                } finally {
+                  setRestoring(false);
+                  e.target.value = "";
+                }
+              }}
+            />
+          </label>
+        </div>
       </div>
+
 
       {/* Danger zone */}
       <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/5 p-6">
