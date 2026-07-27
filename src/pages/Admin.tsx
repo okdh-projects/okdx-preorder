@@ -12,8 +12,10 @@ import {
   ShoppingBag,
   Ticket,
   Trash2,
+  Upload,
   X,
   ScrollText,
+  Search,
   Save,
   DatabaseBackup,
 } from "lucide-react";
@@ -31,6 +33,7 @@ import {
   type OrderRow,
   type ProductRow,
   type PromoCodeRow,
+  type PromoDiscountType,
   type PackagingType,
   type CartItemPersisted,
 } from "../lib/supabase";
@@ -44,13 +47,14 @@ import {
   type HeroSlide,
 } from "../lib/settings";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
-import { manualBackupDownload } from "../lib/backup";
+import { manualBackupDownload, restoreBackup } from "../lib/backup";
 import {
   fetchRemoteOrderLogs,
   clearRemoteLogs,
   clearRemoteOrderLogs,
   type RemoteOrderLog,
 } from "../lib/npoint";
+import { PUBLIC_IMAGES, publicImageUrl, catSlug } from "../lib/publicImages";
 
 
 type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs" | "orderlogs";
@@ -209,6 +213,7 @@ function AdminApp({ email }: { email: string }) {
 function OrdersTab({ actor }: { actor: string }) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [filter, setFilter] = useState<string>("Все");
+  const [assembledSearch, setAssembledSearch] = useState("");
   const [editing, setEditing] = useState<OrderRow | null>(null);
 
   const reload = () =>
@@ -228,8 +233,13 @@ function OrdersTab({ actor }: { actor: string }) {
   const sorted = useMemo(() => {
     const arr = [...orders];
     arr.sort((a, b) => a.client_name.localeCompare(b.client_name, "ru"));
-    return filter === "Все" ? arr : arr.filter((o) => o.status === filter);
-  }, [orders, filter]);
+    let out = filter === "Все" ? arr : arr.filter((o) => o.status === filter);
+    if (filter === "Собран" && assembledSearch.trim()) {
+      const q = assembledSearch.trim().toLowerCase();
+      out = out.filter((o) => o.client_name.toLowerCase().includes(q));
+    }
+    return out;
+  }, [orders, filter, assembledSearch]);
 
   const setStatus = async (o: OrderRow, status: string) => {
     if (status === "Оплачен" && !o.packaging) {
@@ -325,6 +335,28 @@ function OrdersTab({ actor }: { actor: string }) {
           </button>
         ))}
       </div>
+
+      {filter === "Собран" && (
+        <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
+          <Search size={14} className="text-muted-foreground" />
+          <input
+            value={assembledSearch}
+            onChange={(e) => setAssembledSearch(e.target.value)}
+            placeholder="Быстрый поиск по ФИО в собранных…"
+            className="flex-1 bg-transparent font-mono text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {assembledSearch && (
+            <button
+              onClick={() => setAssembledSearch("")}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Очистить"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
 
       <div className="mt-6 space-y-3">
         {sorted.map((o) => (
@@ -937,21 +969,39 @@ function ProductModal({
           </div>
 
           <div className="sm:col-span-2">
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              URL фото (через запятую или новую строку)
-            </label>
-            <textarea
-              value={d.images.join("\n")}
-              onChange={(e) =>
-                setD({
-                  ...d,
-                  images: e.target.value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
-                })
-              }
-              rows={3}
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
-            />
+            <div className="flex items-center justify-between">
+              <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+                Фото товара
+              </label>
+              <button
+                type="button"
+                onClick={() => setD({ ...d, images: [...d.images, ""] })}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-[11px] uppercase tracking-widest hover:bg-muted"
+              >
+                <Plus size={12} /> Фото
+              </button>
+            </div>
+            <div className="mt-2 space-y-2">
+              {d.images.map((img, i) => (
+                <ImageInput
+                  key={i}
+                  value={img}
+                  onChange={(v) =>
+                    setD({ ...d, images: d.images.map((x, j) => (j === i ? v : x)) })
+                  }
+                  onRemove={() =>
+                    setD({ ...d, images: d.images.filter((_, j) => j !== i) })
+                  }
+                />
+              ))}
+              {d.images.length === 0 && (
+                <div className="rounded-md border border-dashed border-border p-3 font-mono text-[11px] text-muted-foreground">
+                  Нет фото. Добавьте хотя бы одно.
+                </div>
+              )}
+            </div>
           </div>
+
 
           <div>
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
@@ -1228,6 +1278,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 function PromoTab({ actor }: { actor: string }) {
   const [codes, setCodes] = useState<PromoCodeRow[]>([]);
   const [newCode, setNewCode] = useState("");
+  const [newType, setNewType] = useState<PromoDiscountType>("sale_price");
+  const [newPercent, setNewPercent] = useState<number>(10);
 
   const reload = () =>
     supabase
@@ -1243,9 +1295,21 @@ function PromoTab({ actor }: { actor: string }) {
   const add = async () => {
     if (!newCode.trim()) return;
     const code = newCode.trim().toUpperCase();
-    const { error } = await supabase.from("promo_codes").insert({ code, is_active: true });
+    if (newType === "percent" && (!newPercent || newPercent <= 0 || newPercent > 100)) {
+      return toast.error("Укажите процент скидки (1–100)");
+    }
+    const { error } = await supabase.from("promo_codes").insert({
+      code,
+      is_active: true,
+      discount_type: newType,
+      discount_percent: newType === "percent" ? newPercent : null,
+    });
     if (error) return toast.error(error.message);
-    writeLog(actor, "Создание промокода", code);
+    writeLog(
+      actor,
+      "Создание промокода",
+      `${code} · ${newType === "percent" ? `−${newPercent}%` : "sale_price"}`,
+    );
     setNewCode("");
     reload();
     toast.success("Промокод создан");
@@ -1267,20 +1331,70 @@ function PromoTab({ actor }: { actor: string }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <h1 className="text-3xl font-bold tracking-tight">Промокоды</h1>
-      <div className="mt-6 flex gap-2">
-        <input
-          value={newCode}
-          onChange={(e) => setNewCode(e.target.value)}
-          placeholder="OKDX10"
-          className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm uppercase"
-        />
-        <button
-          onClick={add}
-          className="rounded-md bg-white px-4 font-mono text-xs uppercase tracking-widest text-black"
-        >
-          <Plus size={14} className="inline" /> Добавить
-        </button>
+
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+        <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+          Новый промокод
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <input
+            value={newCode}
+            onChange={(e) => setNewCode(e.target.value)}
+            placeholder="OKDX10"
+            className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm uppercase"
+          />
+          <button
+            onClick={add}
+            className="rounded-md bg-white px-4 font-mono text-xs uppercase tracking-widest text-black"
+          >
+            <Plus size={14} className="inline" /> Добавить
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3">
+            <input
+              type="radio"
+              name="promo-type"
+              checked={newType === "sale_price"}
+              onChange={() => setNewType("sale_price")}
+              className="mt-1 accent-white"
+            />
+            <div>
+              <div className="font-mono text-xs font-bold">По акционной цене</div>
+              <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                Цена товара становится равной его sale_price (если задан).
+              </div>
+            </div>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3">
+            <input
+              type="radio"
+              name="promo-type"
+              checked={newType === "percent"}
+              onChange={() => setNewType("percent")}
+              className="mt-1 accent-white"
+            />
+            <div className="flex-1">
+              <div className="font-mono text-xs font-bold">Процент скидки</div>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={newPercent}
+                  onChange={(e) => setNewPercent(Number(e.target.value))}
+                  disabled={newType !== "percent"}
+                  className="w-20 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs disabled:opacity-50"
+                />
+                <span className="font-mono text-xs text-muted-foreground">% от базовой цены</span>
+              </div>
+            </div>
+          </label>
+        </div>
       </div>
+
       <div className="mt-6 space-y-2">
         {codes.map((c) => (
           <div
@@ -1290,7 +1404,10 @@ function PromoTab({ actor }: { actor: string }) {
             <div>
               <div className="font-mono font-bold">{c.code}</div>
               <div className="font-mono text-xs text-muted-foreground">
-                {c.is_active ? "Активен" : "Отключён"}
+                {c.is_active ? "Активен" : "Отключён"} ·{" "}
+                {c.discount_type === "percent"
+                  ? `−${c.discount_percent ?? 0}%`
+                  : "Акционная цена"}
               </div>
             </div>
             <div className="flex gap-2">
@@ -1326,13 +1443,24 @@ function SettingsTab({ actor }: { actor: string }) {
   const [draft, setDraft] = useState<SiteContent>(content);
   const [savingContent, setSavingContent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     fetchSettings();
+    supabase
+      .from("products")
+      .select("category")
+      .then(({ data }) => {
+        const set = new Set<string>();
+        (data ?? []).forEach((r: { category: string }) => r.category && set.add(r.category));
+        setCategories(Array.from(set).sort((a, b) => a.localeCompare(b, "ru")));
+      });
   }, []);
   useEffect(() => {
     setDraft(content);
   }, [content]);
+
 
   const toggle = async () => {
     setSaving(true);
@@ -1529,8 +1657,62 @@ function SettingsTab({ actor }: { actor: string }) {
                   placeholder="Подпись"
                   className="mt-2 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
                 />
+
+                <div className="mt-3">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Фоновая картинка (опц.)
+                  </div>
+                  <div className="mt-1">
+                    <ImageInput
+                      value={s.bgImage ?? ""}
+                      onChange={(v) => patchSlide(idx, { bgImage: v || undefined })}
+                      onRemove={() => patchSlide(idx, { bgImage: undefined })}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Якорь на раздел каталога
+                    </span>
+                    <select
+                      value={
+                        s.link && s.link.startsWith("#cat-")
+                          ? s.link
+                          : ""
+                      }
+                      onChange={(e) =>
+                        patchSlide(idx, { link: e.target.value || undefined })
+                      }
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+                    >
+                      <option value="">— не выбрано —</option>
+                      {categories.map((c) => (
+                        <option key={c} value={`#${catSlug(c)}`}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Или произвольная ссылка
+                    </span>
+                    <input
+                      value={s.link && !s.link.startsWith("#cat-") ? s.link : ""}
+
+                      onChange={(e) =>
+                        patchSlide(idx, { link: e.target.value || undefined })
+                      }
+                      placeholder="https://…"
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+                    />
+                  </label>
+                </div>
               </div>
             ))}
+
           </div>
         </div>
 
@@ -1577,19 +1759,52 @@ function SettingsTab({ actor }: { actor: string }) {
       <div className="mt-6 rounded-lg border border-border bg-card p-6">
         <div className="font-bold">Резервная копия</div>
         <p className="mt-1 font-mono text-xs text-muted-foreground">
-          Скачать JSON со всеми товарами, заказами и промокодами.
+          Скачать JSON со всеми товарами, заказами и промокодами. Восстановление вставит
+          записи через upsert (существующие ID перезапишутся).
         </p>
-        <button
-          onClick={async () => {
-            await manualBackupDownload();
-            writeLog(actor, "Бэкап", "manual");
-            toast.success("Бэкап сохранён");
-          }}
-          className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
-        >
-          <DatabaseBackup size={14} /> Скачать бэкап
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={async () => {
+              await manualBackupDownload();
+              writeLog(actor, "Бэкап", "manual");
+              toast.success("Бэкап сохранён");
+            }}
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
+          >
+            <DatabaseBackup size={14} /> Скачать бэкап
+          </button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted">
+            <Upload size={14} /> {restoring ? "Восстановление…" : "Восстановить из файла"}
+            <input
+              type="file"
+              accept="application/json"
+              className="hidden"
+              disabled={restoring}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (!confirm(`Восстановить данные из ${file.name}? Записи с совпадающими ID будут перезаписаны.`)) {
+                  e.target.value = "";
+                  return;
+                }
+                setRestoring(true);
+                try {
+                  const text = await file.text();
+                  const res = await restoreBackup(text);
+                  writeLog(actor, "Восстановление бэкапа", `${file.name} · ${res}`);
+                  toast.success(`Восстановлено: ${res}`);
+                } catch (err) {
+                  toast.error((err as Error).message);
+                } finally {
+                  setRestoring(false);
+                  e.target.value = "";
+                }
+              }}
+            />
+          </label>
+        </div>
       </div>
+
 
       {/* Danger zone */}
       <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/5 p-6">
@@ -1659,6 +1874,11 @@ function TextField({
 // ============= LOGS =============
 function LogsTab() {
   const [logs, setLogs] = useState<AdminLog[]>([]);
+  const [actorFilter, setActorFilter] = useState("");
+  const [actionFilter, setActionFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [query, setQuery] = useState("");
 
   const load = () => {
     readLogs().then(setLogs);
@@ -1669,8 +1889,33 @@ function LogsTab() {
     return () => clearInterval(iv);
   }, []);
 
+  const actors = useMemo(
+    () => Array.from(new Set(logs.map((l) => l.actor))).sort(),
+    [logs],
+  );
+  const actions = useMemo(
+    () => Array.from(new Set(logs.map((l) => l.action))).sort(),
+    [logs],
+  );
+
+  const filtered = useMemo(() => {
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
+    const toTs = dateTo ? new Date(dateTo).getTime() + 24 * 3600 * 1000 : Infinity;
+    const q = query.trim().toLowerCase();
+    return logs.filter((l) => {
+      if (actorFilter && l.actor !== actorFilter) return false;
+      if (actionFilter && l.action !== actionFilter) return false;
+      if (l.ts < fromTs || l.ts > toTs) return false;
+      if (q) {
+        const hay = `${l.actor} ${l.action} ${l.details ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [logs, actorFilter, actionFilter, dateFrom, dateTo, query]);
+
   const exportTxt = () => {
-    const text = logs
+    const text = filtered
       .map(
         (l) =>
           `[${new Date(l.ts).toLocaleString("ru-RU")}] ${l.actor} — ${l.action}${
@@ -1687,6 +1932,14 @@ function LogsTab() {
     URL.revokeObjectURL(url);
   };
 
+  const resetFilters = () => {
+    setActorFilter("");
+    setActionFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setQuery("");
+  };
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1701,8 +1954,67 @@ function LogsTab() {
       <p className="mt-2 font-mono text-xs text-muted-foreground">
         Общая история для всех админов (npoint.io). Без лимитов.
       </p>
-      <div className="mt-6 space-y-2">
-        {logs.map((l, i) => (
+
+      <div className="mt-4 grid gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-5">
+        <select
+          value={actorFilter}
+          onChange={(e) => setActorFilter(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        >
+          <option value="">Все админы</option>
+          {actors.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <select
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        >
+          <option value="">Все действия</option>
+          {actions.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <div className="flex items-center gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск…"
+            className="w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+          />
+          <button
+            onClick={resetFilters}
+            className="rounded-md border border-border px-2 py-2 text-muted-foreground hover:text-foreground"
+            aria-label="Сброс"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 font-mono text-[11px] text-muted-foreground">
+        Показано: {filtered.length} из {logs.length}
+      </div>
+
+      <div className="mt-2 space-y-2">
+        {filtered.map((l, i) => (
           <div key={`${l.ts}-${i}`} className="rounded-md border border-border bg-card p-3">
             <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
               <span>{new Date(l.ts).toLocaleString("ru-RU")}</span>
@@ -1714,9 +2026,9 @@ function LogsTab() {
             )}
           </div>
         ))}
-        {logs.length === 0 && (
+        {filtered.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-10 text-center font-mono text-sm text-muted-foreground">
-            Логов пока нет
+            Ничего не найдено
           </div>
         )}
       </div>
@@ -1727,6 +2039,10 @@ function LogsTab() {
 // ============= ORDER LOGS =============
 function OrderLogsTab() {
   const [orders, setOrders] = useState<RemoteOrderLog[]>([]);
+  const [query, setQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [onlyPromo, setOnlyPromo] = useState(false);
 
   const load = () => {
     fetchRemoteOrderLogs().then(setOrders);
@@ -1737,8 +2053,23 @@ function OrderLogsTab() {
     return () => clearInterval(iv);
   }, []);
 
+  const filtered = useMemo(() => {
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
+    const toTs = dateTo ? new Date(dateTo).getTime() + 24 * 3600 * 1000 : Infinity;
+    const q = query.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (o.ts < fromTs || o.ts > toTs) return false;
+      if (onlyPromo && !o.promo_code) return false;
+      if (q) {
+        const hay = `${o.client_name} ${o.client_contact} ${o.promo_code ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [orders, query, dateFrom, dateTo, onlyPromo]);
+
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(orders, null, 2)], {
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -1763,8 +2094,43 @@ function OrderLogsTab() {
       <p className="mt-2 font-mono text-xs text-muted-foreground">
         История всех оформленных заказов (npoint.io, бин 90ed529dc0763be76ae5).
       </p>
-      <div className="mt-6 space-y-3">
-        {orders.map((o, i) => (
+
+      <div className="mt-4 grid gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-4">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по ФИО / контакту / промо"
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs sm:col-span-2"
+        />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+        />
+        <label className="flex items-center gap-2 font-mono text-xs text-muted-foreground sm:col-span-4">
+          <input
+            type="checkbox"
+            checked={onlyPromo}
+            onChange={(e) => setOnlyPromo(e.target.checked)}
+            className="accent-white"
+          />
+          Только с промокодом
+        </label>
+      </div>
+
+      <div className="mt-4 font-mono text-[11px] text-muted-foreground">
+        Показано: {filtered.length} из {orders.length}
+      </div>
+
+      <div className="mt-2 space-y-3">
+        {filtered.map((o, i) => (
           <div key={`${o.ts}-${i}`} className="rounded-md border border-border bg-card p-4">
             <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
               <span>{new Date(o.ts).toLocaleString("ru-RU")}</span>
@@ -1786,12 +2152,77 @@ function OrderLogsTab() {
             </ul>
           </div>
         ))}
-        {orders.length === 0 && (
+        {filtered.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-10 text-center font-mono text-sm text-muted-foreground">
-            Заказов пока нет
+            Ничего не найдено
           </div>
         )}
       </div>
     </div>
   );
 }
+
+// ============= IMAGE INPUT =============
+function ImageInput({
+  value,
+  onChange,
+  onRemove,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onRemove?: () => void;
+}) {
+  const isPublic = value.startsWith("/images/") || value.startsWith("./images/");
+  const currentLocal = isPublic
+    ? PUBLIC_IMAGES.find((f) => value.endsWith(f)) ?? ""
+    : "";
+  return (
+    <div className="rounded-md border border-border bg-background p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={currentLocal}
+          onChange={(e) => {
+            if (e.target.value) onChange(publicImageUrl(e.target.value));
+          }}
+          className="min-w-[10rem] rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+        >
+          <option value="">— выбрать из public/images —</option>
+          {PUBLIC_IMAGES.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="или https://…"
+          className="flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs"
+        />
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-md border border-border p-1 text-muted-foreground hover:text-red-400"
+            aria-label="Удалить"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+      {value && (
+        <div className="mt-2 flex items-center gap-2">
+          <img
+            src={value}
+            alt=""
+            className="h-14 w-14 rounded-md object-cover"
+            onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.2")}
+          />
+          <div className="truncate font-mono text-[10px] text-muted-foreground">{value}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+

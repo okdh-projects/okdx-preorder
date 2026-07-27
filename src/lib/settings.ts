@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { supabase } from "./supabase";
 
-export type HeroSlide = { tag: string; title: string; subtitle: string };
+export type HeroSlide = { tag: string; title: string; subtitle: string; bgImage?: string; link?: string };
 
 export type SiteContent = {
   heroSlides: HeroSlide[];

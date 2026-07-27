@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Instagram } from "lucide-react";
 import { Logo } from "./Logo";
 import { fetchSettings, useSettings } from "../lib/settings";
 
@@ -18,7 +19,15 @@ export function Footer() {
             <div className="font-mono text-xs text-muted-foreground">{content.footerTagline}</div>
           </div>
         </div>
-        <div className="font-mono text-xs text-muted-foreground sm:text-right">
+        <div className="flex flex-col gap-2 font-mono text-xs text-muted-foreground sm:items-end">
+          <a
+            href="https://www.instagram.com/okdh.bsu/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-foreground hover:opacity-80"
+          >
+            <Instagram size={14} /> По вопросам можно писать нам в директ
+          </a>
           <div>{content.footerCopyright}</div>
           <div>Все права защищены</div>
         </div>
