@@ -969,21 +969,39 @@ function ProductModal({
           </div>
 
           <div className="sm:col-span-2">
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              URL фото (через запятую или новую строку)
-            </label>
-            <textarea
-              value={d.images.join("\n")}
-              onChange={(e) =>
-                setD({
-                  ...d,
-                  images: e.target.value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
-                })
-              }
-              rows={3}
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
-            />
+            <div className="flex items-center justify-between">
+              <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+                Фото товара
+              </label>
+              <button
+                type="button"
+                onClick={() => setD({ ...d, images: [...d.images, ""] })}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-mono text-[11px] uppercase tracking-widest hover:bg-muted"
+              >
+                <Plus size={12} /> Фото
+              </button>
+            </div>
+            <div className="mt-2 space-y-2">
+              {d.images.map((img, i) => (
+                <ImageInput
+                  key={i}
+                  value={img}
+                  onChange={(v) =>
+                    setD({ ...d, images: d.images.map((x, j) => (j === i ? v : x)) })
+                  }
+                  onRemove={() =>
+                    setD({ ...d, images: d.images.filter((_, j) => j !== i) })
+                  }
+                />
+              ))}
+              {d.images.length === 0 && (
+                <div className="rounded-md border border-dashed border-border p-3 font-mono text-[11px] text-muted-foreground">
+                  Нет фото. Добавьте хотя бы одно.
+                </div>
+              )}
+            </div>
           </div>
+
 
           <div>
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
