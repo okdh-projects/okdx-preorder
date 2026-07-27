@@ -171,6 +171,8 @@ export default function Cart() {
     setCaptcha(makeCaptcha());
     setCaptchaAnswer("");
     setPromoCode(null);
+    setPromoType(null);
+    setPromoPercent(0);
     setSalePrices({});
     toast.success("Заказ оформлен!", { description: "Мы напишем вам в Telegram." });
   };
