@@ -1443,13 +1443,24 @@ function SettingsTab({ actor }: { actor: string }) {
   const [draft, setDraft] = useState<SiteContent>(content);
   const [savingContent, setSavingContent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     fetchSettings();
+    supabase
+      .from("products")
+      .select("category")
+      .then(({ data }) => {
+        const set = new Set<string>();
+        (data ?? []).forEach((r: { category: string }) => r.category && set.add(r.category));
+        setCategories(Array.from(set).sort((a, b) => a.localeCompare(b, "ru")));
+      });
   }, []);
   useEffect(() => {
     setDraft(content);
   }, [content]);
+
 
   const toggle = async () => {
     setSaving(true);
