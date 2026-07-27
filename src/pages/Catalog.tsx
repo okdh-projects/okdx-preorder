@@ -5,6 +5,7 @@ import { Layout } from "../components/Layout";
 import { Logo } from "../components/Logo";
 import { supabase, type ProductRow, formatMoney } from "../lib/supabase";
 import { fetchSettings, subscribeSettings, useSettings } from "../lib/settings";
+import { catSlug } from "../lib/publicImages";
 
 function Hero() {
   const { content } = useSettings();
@@ -29,18 +30,55 @@ function Hero() {
   if (!heroSlides.length) return null;
   const s = heroSlides[i] ?? heroSlides[0];
   const isLight = i % 2 === 0;
-  const bg = isLight ? "bg-white text-black" : "bg-black text-white";
-  const muted = isLight ? "text-neutral-600" : "text-neutral-400";
-  const btnBorder = isLight ? "border-black/20 hover:text-black" : "border-white/20 hover:text-white";
-  const btnText = isLight ? "text-black/60" : "text-white/60";
-  const dotActive = isLight ? "bg-black" : "bg-white";
-  const dotIdle = isLight ? "bg-black/20" : "bg-white/20";
+  const hasBg = !!s.bgImage;
+  const bg = hasBg
+    ? "text-white"
+    : isLight
+      ? "bg-white text-black"
+      : "bg-black text-white";
+  const muted = hasBg ? "text-white/80" : isLight ? "text-neutral-600" : "text-neutral-400";
+  const btnBorder = hasBg
+    ? "border-white/40 hover:text-white"
+    : isLight
+      ? "border-black/20 hover:text-black"
+      : "border-white/20 hover:text-white";
+  const btnText = hasBg ? "text-white/80" : isLight ? "text-black/60" : "text-white/60";
+  const dotActive = hasBg ? "bg-white" : isLight ? "bg-black" : "bg-white";
+  const dotIdle = hasBg ? "bg-white/30" : isLight ? "bg-black/20" : "bg-white/20";
+
+  const handleClick = () => {
+    const l = s.link?.trim();
+    if (!l) return;
+    if (l.startsWith("#")) {
+      const el = document.getElementById(l.slice(1));
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      window.open(l, l.startsWith("http") ? "_blank" : "_self");
+    }
+  };
 
   return (
-    <div className={`relative overflow-hidden rounded-lg border border-border transition-colors duration-500 ${bg}`}>
+    <div
+      className={`relative overflow-hidden rounded-lg border border-border transition-colors duration-500 ${bg} ${
+        s.link ? "cursor-pointer" : ""
+      }`}
+      style={
+        hasBg
+          ? {
+              backgroundImage: `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.55)), url(${s.bgImage})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : undefined
+      }
+      onClick={s.link ? handleClick : undefined}
+    >
       <div className="flex items-center gap-4 p-6 sm:p-10">
         <button
-          onClick={() => setI((i - 1 + heroSlides.length) % heroSlides.length)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setI((i - 1 + heroSlides.length) % heroSlides.length);
+          }}
           className={`hidden shrink-0 rounded-md border p-2 sm:block ${btnBorder} ${btnText}`}
           aria-label="Назад"
         >
@@ -55,7 +93,10 @@ function Hero() {
           <p className={`mt-2 text-sm ${muted}`}>{s.subtitle}</p>
         </div>
         <button
-          onClick={() => setI((i + 1) % heroSlides.length)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setI((i + 1) % heroSlides.length);
+          }}
           className={`hidden shrink-0 rounded-md border p-2 sm:block ${btnBorder} ${btnText}`}
           aria-label="Вперёд"
         >
@@ -66,7 +107,10 @@ function Hero() {
         {heroSlides.map((_, idx) => (
           <button
             key={idx}
-            onClick={() => setI(idx)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setI(idx);
+            }}
             className={`h-1 w-8 rounded-full transition-colors ${idx === i ? dotActive : dotIdle}`}
             aria-label={`Слайд ${idx + 1}`}
           />
@@ -75,6 +119,7 @@ function Hero() {
     </div>
   );
 }
+
 
 
 export function ProductCard({ p, showSale = false }: { p: ProductRow; showSale?: boolean }) {
