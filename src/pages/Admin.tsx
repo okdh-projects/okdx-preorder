@@ -1657,8 +1657,61 @@ function SettingsTab({ actor }: { actor: string }) {
                   placeholder="Подпись"
                   className="mt-2 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
                 />
+
+                <div className="mt-3">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Фоновая картинка (опц.)
+                  </div>
+                  <div className="mt-1">
+                    <ImageInput
+                      value={s.bgImage ?? ""}
+                      onChange={(v) => patchSlide(idx, { bgImage: v || undefined })}
+                      onRemove={() => patchSlide(idx, { bgImage: undefined })}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Якорь на раздел каталога
+                    </span>
+                    <select
+                      value={
+                        s.link && s.link.startsWith("#cat-")
+                          ? s.link
+                          : ""
+                      }
+                      onChange={(e) =>
+                        patchSlide(idx, { link: e.target.value || undefined })
+                      }
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+                    >
+                      <option value="">— не выбрано —</option>
+                      {categories.map((c) => (
+                        <option key={c} value={`#cat-${catSlug(c)}`}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Или произвольная ссылка
+                    </span>
+                    <input
+                      value={s.link && !s.link.startsWith("#cat-") ? s.link : ""}
+                      onChange={(e) =>
+                        patchSlide(idx, { link: e.target.value || undefined })
+                      }
+                      placeholder="https://…"
+                      className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
+                    />
+                  </label>
+                </div>
               </div>
             ))}
+
           </div>
         </div>
 
