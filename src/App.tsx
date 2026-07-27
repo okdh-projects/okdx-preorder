@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { Toaster } from "sonner";
 import Catalog from "./pages/Catalog";
 import Product from "./pages/Product";
@@ -18,7 +18,7 @@ export default function App() {
         <Route path="/product/:id" element={<Product />} />
         <Route path="/cart" element={<Cart />} />
         <Route path="/admin" element={<Admin />} />
-        <Route path="*" element={<Catalog />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster theme="dark" position="top-center" richColors closeButton />
     </>
