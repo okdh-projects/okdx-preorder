@@ -1278,6 +1278,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 function PromoTab({ actor }: { actor: string }) {
   const [codes, setCodes] = useState<PromoCodeRow[]>([]);
   const [newCode, setNewCode] = useState("");
+  const [newType, setNewType] = useState<PromoDiscountType>("sale_price");
+  const [newPercent, setNewPercent] = useState<number>(10);
 
   const reload = () =>
     supabase
@@ -1293,9 +1295,21 @@ function PromoTab({ actor }: { actor: string }) {
   const add = async () => {
     if (!newCode.trim()) return;
     const code = newCode.trim().toUpperCase();
-    const { error } = await supabase.from("promo_codes").insert({ code, is_active: true });
+    if (newType === "percent" && (!newPercent || newPercent <= 0 || newPercent > 100)) {
+      return toast.error("Укажите процент скидки (1–100)");
+    }
+    const { error } = await supabase.from("promo_codes").insert({
+      code,
+      is_active: true,
+      discount_type: newType,
+      discount_percent: newType === "percent" ? newPercent : null,
+    });
     if (error) return toast.error(error.message);
-    writeLog(actor, "Создание промокода", code);
+    writeLog(
+      actor,
+      "Создание промокода",
+      `${code} · ${newType === "percent" ? `−${newPercent}%` : "sale_price"}`,
+    );
     setNewCode("");
     reload();
     toast.success("Промокод создан");
@@ -1317,20 +1331,70 @@ function PromoTab({ actor }: { actor: string }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <h1 className="text-3xl font-bold tracking-tight">Промокоды</h1>
-      <div className="mt-6 flex gap-2">
-        <input
-          value={newCode}
-          onChange={(e) => setNewCode(e.target.value)}
-          placeholder="OKDX10"
-          className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm uppercase"
-        />
-        <button
-          onClick={add}
-          className="rounded-md bg-white px-4 font-mono text-xs uppercase tracking-widest text-black"
-        >
-          <Plus size={14} className="inline" /> Добавить
-        </button>
+
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+        <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+          Новый промокод
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <input
+            value={newCode}
+            onChange={(e) => setNewCode(e.target.value)}
+            placeholder="OKDX10"
+            className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm uppercase"
+          />
+          <button
+            onClick={add}
+            className="rounded-md bg-white px-4 font-mono text-xs uppercase tracking-widest text-black"
+          >
+            <Plus size={14} className="inline" /> Добавить
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3">
+            <input
+              type="radio"
+              name="promo-type"
+              checked={newType === "sale_price"}
+              onChange={() => setNewType("sale_price")}
+              className="mt-1 accent-white"
+            />
+            <div>
+              <div className="font-mono text-xs font-bold">По акционной цене</div>
+              <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                Цена товара становится равной его sale_price (если задан).
+              </div>
+            </div>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3">
+            <input
+              type="radio"
+              name="promo-type"
+              checked={newType === "percent"}
+              onChange={() => setNewType("percent")}
+              className="mt-1 accent-white"
+            />
+            <div className="flex-1">
+              <div className="font-mono text-xs font-bold">Процент скидки</div>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={newPercent}
+                  onChange={(e) => setNewPercent(Number(e.target.value))}
+                  disabled={newType !== "percent"}
+                  className="w-20 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs disabled:opacity-50"
+                />
+                <span className="font-mono text-xs text-muted-foreground">% от базовой цены</span>
+              </div>
+            </div>
+          </label>
+        </div>
       </div>
+
       <div className="mt-6 space-y-2">
         {codes.map((c) => (
           <div
@@ -1340,7 +1404,10 @@ function PromoTab({ actor }: { actor: string }) {
             <div>
               <div className="font-mono font-bold">{c.code}</div>
               <div className="font-mono text-xs text-muted-foreground">
-                {c.is_active ? "Активен" : "Отключён"}
+                {c.is_active ? "Активен" : "Отключён"} ·{" "}
+                {c.discount_type === "percent"
+                  ? `−${c.discount_percent ?? 0}%`
+                  : "Акционная цена"}
               </div>
             </div>
             <div className="flex gap-2">
