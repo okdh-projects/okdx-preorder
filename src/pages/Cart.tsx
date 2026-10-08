@@ -1,10 +1,10 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Check, Lock, Minus, Plus, ShoppingCart, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Layout } from "../components/Layout";
 import { useCart } from "../lib/store";
-import { supabase, formatMoney, type ProductRow } from "../lib/supabase";
+import { supabase, encodeItem } from "../lib/supabase";
 import { fetchSettings, useSettings } from "../lib/settings";
 import { pushRemoteOrderLog } from "../lib/npoint";
 
@@ -33,77 +33,9 @@ export default function Cart() {
   const [captcha, setCaptcha] = useState(makeCaptcha());
   const [captchaAnswer, setCaptchaAnswer] = useState("");
 
-  // Promo
-  const [promoInput, setPromoInput] = useState("");
-  const [promoCode, setPromoCode] = useState<string | null>(null);
-  const [promoLoading, setPromoLoading] = useState(false);
-  const [promoType, setPromoType] = useState<"percent" | "sale_price" | null>(null);
-  const [promoPercent, setPromoPercent] = useState<number>(0);
-  const [salePrices, setSalePrices] = useState<Record<string, number>>({});
-
   useEffect(() => {
     fetchSettings();
   }, []);
-
-  const applyPromo = async () => {
-    const code = promoInput.trim().toUpperCase();
-    if (!code) return;
-    setPromoLoading(true);
-    const { data } = await supabase
-      .from("promo_codes")
-      .select("code, is_active, discount_type, discount_percent")
-      .eq("code", code)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (!data) {
-      setPromoLoading(false);
-      toast.error("Промокод не найден или не активен");
-      return;
-    }
-    const type = (data.discount_type as "percent" | "sale_price") ?? "sale_price";
-    if (type === "sale_price") {
-      const ids = Array.from(new Set(cart.map((c) => c.productId)));
-      const { data: prods } = await supabase
-        .from("products")
-        .select("id, sale_price")
-        .in("id", ids);
-      const sp: Record<string, number> = {};
-      (prods ?? []).forEach((p: Pick<ProductRow, "id" | "sale_price">) => {
-        if (p.sale_price != null) sp[p.id] = Number(p.sale_price);
-      });
-      setSalePrices(sp);
-      setPromoPercent(0);
-    } else {
-      setSalePrices({});
-      setPromoPercent(Number(data.discount_percent) || 0);
-    }
-    setPromoType(type);
-    setPromoCode(code);
-    setPromoLoading(false);
-    toast.success(`Промокод ${code} применён`);
-  };
-
-  const removePromo = () => {
-    setPromoCode(null);
-    setPromoType(null);
-    setPromoPercent(0);
-    setSalePrices({});
-  };
-
-  const linePrice = (productId: string, basePrice: number) => {
-    if (!promoCode) return basePrice;
-    if (promoType === "percent") {
-      return Math.max(0, Math.round(basePrice * (1 - promoPercent / 100) * 100) / 100);
-    }
-    return salePrices[productId] != null ? salePrices[productId] : basePrice;
-  };
-
-  const total = useMemo(
-    () => cart.reduce((a, b) => a + linePrice(b.productId, b.price) * b.qty, 0),
-    [cart, promoCode, promoType, promoPercent, salePrices],
-  );
-  const baseTotal = useMemo(() => cart.reduce((a, b) => a + b.price * b.qty, 0), [cart]);
-  const discount = baseTotal - total;
 
   const captchaOk = Number(captchaAnswer) === captcha.answer;
   const canSubmit =
@@ -120,45 +52,21 @@ export default function Cart() {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
-    const items = cart.map((c) => ({
-      productId: c.productId,
-      name: c.name,
-      price: linePrice(c.productId, c.price),
-      qty: c.qty,
-      size: c.size,
-      variant: c.variant,
-      image: c.image,
-    }));
-    const payload = {
-      client_name: name.trim(),
-      client_contact: `${telegram.trim()} | ${phone.trim()}`,
-      items,
-      total_price: total,
-      status: "Новый",
-      packaging: null,
-      promo_code: promoCode,
-    };
-    const { error } = await supabase.from("orders").insert(payload);
+    // Compact items; name & price are filled server-side by a DB trigger.
+    const items = cart.map((c) => encodeItem({ productId: c.productId, qty: c.qty, size: c.size, variant: c.variant }));
+    const contact = `${telegram.trim()} | ${phone.trim()}`;
+    const { error } = await supabase.from("orders").insert({ client_name: name.trim(), client_contact: contact, items });
     setSubmitting(false);
     if (error) {
       toast.error("Не удалось оформить заказ", { description: error.message });
       return;
     }
 
-    // Order log to npoint.io
     pushRemoteOrderLog({
       ts: Date.now(),
       client_name: name.trim(),
-      client_contact: `${telegram.trim()} | ${phone.trim()}`,
-      total_price: total,
-      promo_code: promoCode,
-      items: items.map((i) => ({
-        name: i.name,
-        qty: i.qty,
-        price: i.price,
-        size: i.size,
-        variant: i.variant,
-      })),
+      client_contact: contact,
+      items: cart.map((i) => ({ name: i.name, qty: i.qty, size: i.size, variant: i.variant })),
     });
 
     setPlaced(true);
@@ -170,10 +78,6 @@ export default function Cart() {
     setConsentPd(false);
     setCaptcha(makeCaptcha());
     setCaptchaAnswer("");
-    setPromoCode(null);
-    setPromoType(null);
-    setPromoPercent(0);
-    setSalePrices({});
     toast.success("Заказ оформлен!", { description: "Мы напишем вам в Telegram." });
   };
 
@@ -222,8 +126,6 @@ export default function Cart() {
           <>
             <div className="mt-6 space-y-3">
               {cart.map((item) => {
-                const lp = linePrice(item.productId, item.price);
-                const hasDiscount = lp < item.price;
                 return (
                   <div key={item.id} className="flex items-center gap-4 rounded-lg border border-border bg-card p-4">
                     <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-neutral-900">
@@ -260,14 +162,6 @@ export default function Cart() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className={`font-mono font-bold ${hasDiscount ? "text-red-400" : ""}`}>
-                        {formatMoney(lp * item.qty)}
-                      </div>
-                      {hasDiscount && (
-                        <div className="font-mono text-[11px] text-muted-foreground line-through">
-                          {formatMoney(item.price * item.qty)}
-                        </div>
-                      )}
                       <button
                         onClick={() => removeFromCart(item.id)}
                         className="mt-2 text-muted-foreground hover:text-red-400"
@@ -279,55 +173,6 @@ export default function Cart() {
                   </div>
                 );
               })}
-            </div>
-
-            {/* Promo */}
-            <div className="mt-6 rounded-lg border border-border bg-card p-4">
-              <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                Промокод
-              </div>
-              {promoCode ? (
-                <div className="mt-2 flex items-center justify-between">
-                  <div className="font-mono font-bold text-green-400">✓ {promoCode}</div>
-                  <button
-                    onClick={removePromo}
-                    className="rounded-md border border-border px-3 py-1.5 font-mono text-xs uppercase tracking-widest hover:bg-muted"
-                  >
-                    Убрать
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={promoInput}
-                    onChange={(e) => setPromoInput(e.target.value)}
-                    placeholder="OKDX10"
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm uppercase"
-                  />
-                  <button
-                    onClick={applyPromo}
-                    disabled={promoLoading || !promoInput.trim()}
-                    className="rounded-md bg-white px-4 py-2 font-mono text-xs uppercase tracking-widest text-black disabled:opacity-50"
-                  >
-                    {promoLoading ? "…" : "Применить"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 space-y-1 border-t border-border pt-6">
-              {discount > 0 && (
-                <div className="flex justify-between font-mono text-xs text-muted-foreground">
-                  <span>Скидка</span>
-                  <span className="text-red-400">− {formatMoney(discount)}</span>
-                </div>
-              )}
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                  Итого
-                </span>
-                <span className="font-mono text-3xl font-bold">{formatMoney(total)}</span>
-              </div>
             </div>
 
             <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-border bg-card p-6">
