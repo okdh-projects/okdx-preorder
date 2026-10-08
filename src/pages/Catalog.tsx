@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Instagram, Lock, ShoppingBag } from "lucide-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "../components/Layout";
 import { Logo } from "../components/Logo";
-import { supabase, type ProductRow, formatMoney } from "../lib/supabase";
+import { supabase, type ProductRow, PUBLIC_PRODUCT_COLS } from "../lib/supabase";
 import { fetchSettings, subscribeSettings, useSettings } from "../lib/settings";
 import { catSlug } from "../lib/publicImages";
 
@@ -122,12 +122,10 @@ function Hero() {
 
 
 
-export function ProductCard({ p, showSale = false }: { p: ProductRow; showSale?: boolean }) {
+export function ProductCard({ p }: { p: ProductRow }) {
   const nav = useNavigate();
   const [idx, setIdx] = useState(0);
   const imgs = p.images.length ? p.images : [""];
-  const displayPrice = showSale && p.sale_price != null ? p.sale_price : p.price;
-  const strike = showSale && p.sale_price != null && p.sale_price < p.price;
 
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -172,17 +170,7 @@ export function ProductCard({ p, showSale = false }: { p: ProductRow; showSale?:
       </div>
       <div className="p-4">
         <h3 className="font-bold">{p.name}</h3>
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-baseline gap-2">
-            <span className={`font-mono text-sm font-bold ${strike ? "text-red-400" : ""}`}>
-              {formatMoney(displayPrice)}
-            </span>
-            {strike && (
-              <span className="font-mono text-xs text-muted-foreground line-through">
-                {formatMoney(p.price)}
-              </span>
-            )}
-          </div>
+        <div className="mt-2 flex items-center justify-end">
           <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
             Подробнее →
           </span>
@@ -227,10 +215,10 @@ export default function Catalog() {
   useEffect(() => {
     supabase
       .from("products")
-      .select("*")
+      .select(PUBLIC_PRODUCT_COLS)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
-        setProducts(data ?? []);
+        setProducts((data ?? []) as ProductRow[]);
         setLoading(false);
       });
     const ch = supabase
@@ -238,9 +226,9 @@ export default function Catalog() {
       .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
         supabase
           .from("products")
-          .select("*")
+          .select(PUBLIC_PRODUCT_COLS)
           .order("created_at", { ascending: false })
-          .then(({ data }) => setProducts(data ?? []));
+          .then(({ data }) => setProducts((data ?? []) as ProductRow[]));
       })
       .subscribe();
     return () => {

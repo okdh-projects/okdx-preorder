@@ -1,4 +1,5 @@
--- OKDX.Merch schema. Run in the Supabase SQL editor.
+-- OKDX.Merch schema (fresh database). Run once in Supabase → SQL Editor.
+-- Compact design: no promo codes, no sale_price, order items stored as short JSON keys.
 
 -- =========================
 -- PRODUCTS
@@ -8,8 +9,7 @@ create table if not exists public.products (
   created_at timestamptz not null default now(),
   category text not null,
   name text not null,
-  price numeric not null,
-  sale_price numeric,
+  price numeric(10,2) not null,
   sizes text[] not null default '{}',
   images text[] not null default '{}',
   description text not null default '',
@@ -17,7 +17,10 @@ create table if not exists public.products (
   variants text[]
 );
 
-grant select on public.products to anon;
+-- Visitors may read every column EXCEPT price (prices are admin-only).
+revoke all on public.products from anon;
+grant select (id, created_at, category, name, sizes, images, description, variant_label, variants)
+  on public.products to anon;
 grant select, insert, update, delete on public.products to authenticated;
 grant all on public.products to service_role;
 
@@ -29,25 +32,60 @@ create policy "products_auth_all" on public.products for all to authenticated us
 
 -- =========================
 -- ORDERS
+-- items: [{"p":"<product uuid>","q":2,"s":"M","v":"Black","n":"<name>","r":25}]
+--   p = product id, q = qty, s = size, v = variant, n = name, r = unit price
 -- =========================
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
-  client_name text not null,
-  client_contact text not null,
+  client_name varchar(100) not null,
+  client_contact varchar(80) not null,
   items jsonb not null default '[]'::jsonb,
-  total_price numeric not null default 0,
-  status text not null default 'Новый',
-  packaging text,
-  promo_code text
+  total_price numeric(10,2) not null default 0,
+  status varchar(12) not null default 'Новый',
+  packaging varchar(16)
 );
 
--- If table already existed with old columns, drop deprecated ones and add new ones.
-alter table public.orders drop column if exists delivery_address;
-alter table public.orders add column if not exists packaging text;
-alter table public.orders add column if not exists promo_code text;
+-- Server-side pricing: visitors never send or see prices.
+create or replace function public.orders_fill_prices()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  it jsonb;
+  out_items jsonb := '[]'::jsonb;
+  pr record;
+  total numeric := 0;
+begin
+  if coalesce(auth.role(), 'anon') <> 'anon' then
+    return new; -- admins / restores keep their own values
+  end if;
+  if jsonb_array_length(new.items) = 0 or jsonb_array_length(new.items) > 50 then
+    raise exception 'invalid items';
+  end if;
+  for it in select * from jsonb_array_elements(new.items) loop
+    select name, price into pr from public.products where id = (it->>'p')::uuid;
+    if not found then raise exception 'unknown product'; end if;
+    if (it->>'q')::int < 1 or (it->>'q')::int > 99 then raise exception 'invalid qty'; end if;
+    out_items := out_items || jsonb_strip_nulls(jsonb_build_object(
+      'p', it->>'p', 'q', (it->>'q')::int, 's', it->>'s', 'v', it->>'v',
+      'n', pr.name, 'r', pr.price));
+    total := total + pr.price * (it->>'q')::int;
+  end loop;
+  new.items := out_items;
+  new.total_price := total;
+  new.status := 'Новый';
+  new.packaging := null;
+  return new;
+end $$;
 
-grant insert on public.orders to anon;
+drop trigger if exists orders_fill_prices on public.orders;
+create trigger orders_fill_prices before insert on public.orders
+  for each row execute function public.orders_fill_prices();
+
+grant insert (client_name, client_contact, items) on public.orders to anon;
 grant select, insert, update, delete on public.orders to authenticated;
 grant all on public.orders to service_role;
 
@@ -58,35 +96,10 @@ drop policy if exists "orders_auth_all" on public.orders;
 create policy "orders_auth_all" on public.orders for all to authenticated using (true) with check (true);
 
 -- =========================
--- PROMO CODES
--- =========================
-create table if not exists public.promo_codes (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz not null default now(),
-  code text not null unique,
-  is_active boolean not null default true,
-  discount_type text not null default 'sale_price',
-  discount_percent numeric
-);
-
-alter table public.promo_codes add column if not exists discount_type text not null default 'sale_price';
-alter table public.promo_codes add column if not exists discount_percent numeric;
-
-grant select on public.promo_codes to anon;
-grant select, insert, update, delete on public.promo_codes to authenticated;
-grant all on public.promo_codes to service_role;
-
-alter table public.promo_codes enable row level security;
-drop policy if exists "promo_public_read_active" on public.promo_codes;
-create policy "promo_public_read_active" on public.promo_codes for select to anon using (is_active);
-drop policy if exists "promo_auth_all" on public.promo_codes;
-create policy "promo_auth_all" on public.promo_codes for all to authenticated using (true) with check (true);
-
--- =========================
--- APP SETTINGS
+-- APP SETTINGS (key → JSON text)
 -- =========================
 create table if not exists public.app_settings (
-  key text primary key,
+  key varchar(32) primary key,
   value text
 );
 
@@ -111,8 +124,6 @@ do $$ begin
   if not found then alter publication supabase_realtime add table public.products; end if;
   perform 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'orders';
   if not found then alter publication supabase_realtime add table public.orders; end if;
-  perform 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'promo_codes';
-  if not found then alter publication supabase_realtime add table public.promo_codes; end if;
   perform 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'app_settings';
   if not found then alter publication supabase_realtime add table public.app_settings; end if;
 end $$;

@@ -1,16 +1,14 @@
-import { supabase } from "./supabase";
+import { supabase, encodeItem, decodeItem } from "./supabase";
 
 async function collectBackup() {
-  const [orders, products, promo] = await Promise.all([
+  const [orders, products] = await Promise.all([
     supabase.from("orders").select("*"),
     supabase.from("products").select("*"),
-    supabase.from("promo_codes").select("*"),
   ]);
   return {
     created_at: new Date().toISOString(),
     orders: orders.data ?? [],
     products: products.data ?? [],
-    promo_codes: promo.data ?? [],
   };
 }
 
@@ -20,7 +18,7 @@ function todayStr() {
 
 export async function manualBackupDownload(): Promise<void> {
   const data = await collectBackup();
-  const json = JSON.stringify(data, null, 2);
+  const json = JSON.stringify(data);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -45,21 +43,28 @@ export async function restoreBackup(json: string): Promise<string> {
   };
   const products = Array.isArray(p.products) ? p.products : [];
   const orders = Array.isArray(p.orders) ? p.orders : [];
-  const promo = Array.isArray(p.promo_codes) ? p.promo_codes : [];
-
   const results: string[] = [];
   if (products.length) {
-    const { error } = await supabase.from("products").upsert(products as never);
+    const cleanP = (products as Record<string, unknown>[]).map((x) => {
+      const { sale_price: _s, ...rest } = x;
+      void _s;
+      return rest;
+    });
+    const { error } = await supabase.from("products").upsert(cleanP as never);
     if (error) throw new Error(`products: ${error.message}`);
     results.push(`${products.length} товар(ов)`);
   }
-  if (promo.length) {
-    const { error } = await supabase.from("promo_codes").upsert(promo as never);
-    if (error) throw new Error(`promo_codes: ${error.message}`);
-    results.push(`${promo.length} промокод(ов)`);
-  }
   if (orders.length) {
-    const { error } = await supabase.from("orders").upsert(orders as never);
+    // Convert legacy orders to compact format, drop removed columns.
+    const clean = (orders as Record<string, unknown>[]).map((o) => {
+      const { promo_code: _p, delivery_address: _d, ...rest } = o;
+      void _p; void _d;
+      const items = Array.isArray(rest.items)
+        ? (rest.items as never[]).map((i) => encodeItem(decodeItem(i)))
+        : [];
+      return { ...rest, items };
+    });
+    const { error } = await supabase.from("orders").upsert(clean as never);
     if (error) throw new Error(`orders: ${error.message}`);
     results.push(`${orders.length} заказ(ов)`);
   }

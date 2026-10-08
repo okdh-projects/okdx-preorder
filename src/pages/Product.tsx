@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Check, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Layout } from "../components/Layout";
-import { supabase, type ProductRow, formatMoney } from "../lib/supabase";
+import { supabase, type ProductRow, PUBLIC_PRODUCT_COLS } from "../lib/supabase";
 import { useCart } from "../lib/store";
 import { fetchSettings, useSettings } from "../lib/settings";
 
@@ -27,11 +27,11 @@ export default function Product() {
     if (!id) return;
     supabase
       .from("products")
-      .select("*")
+      .select(PUBLIC_PRODUCT_COLS)
       .eq("id", id)
       .maybeSingle()
       .then(({ data }) => {
-        setProduct(data);
+        setProduct(data as ProductRow | null);
         setSize(data?.sizes?.[0]);
         setVariant(data?.variants?.[0]);
         setLoading(false);
@@ -71,8 +71,6 @@ export default function Product() {
     );
   }
 
-  // Base price only — sale price is applied only after promo code in cart.
-  const displayPrice = product.price;
   const cartKey = `${product.id}|${size ?? ""}|${variant ?? ""}`;
   const inCart = cart.find((c) => c.id === cartKey);
   const imgs = product.images.length ? product.images : [""];
@@ -81,7 +79,7 @@ export default function Product() {
     addToCart({
       productId: product.id,
       name: product.name,
-      price: displayPrice,
+      price: 0,
       qty: 1,
       size,
       variant,
@@ -177,11 +175,10 @@ export default function Product() {
 
             {inCart && (
               <div className="mt-6 flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 font-mono text-sm text-green-400">
-                <Check size={16} />В корзине: {inCart.qty} шт — {formatMoney(inCart.qty * inCart.price)}
+                <Check size={16} />В корзине: {inCart.qty} шт
               </div>
             )}
 
-            <div className="mt-6 font-mono text-3xl font-bold">{formatMoney(displayPrice)}</div>
 
             <button
               onClick={handleAdd}
