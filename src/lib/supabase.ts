@@ -1,19 +1,25 @@
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://aouemjawqprkbnyavuaq.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvdWVtamF3cXBya2JueWF2dWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2MzM3NzgsImV4cCI6MjEwMDIwOTc3OH0.tV2d5QRaJVBlnR39d3om2OY_oFzDi4JLTRIS8fC24eg";
+// Values come from build-time env vars (GitHub Actions secrets → VITE_*).
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: "okdx-auth" },
-});
+export const SUPABASE_CONFIGURED = !!SUPABASE_URL && !!SUPABASE_ANON_KEY;
+
+export const supabase = createClient(
+  SUPABASE_URL || "https://placeholder.supabase.co",
+  SUPABASE_ANON_KEY || "placeholder",
+  { auth: { persistSession: true, autoRefreshToken: true, storageKey: "okdx-auth" } },
+);
+
+// Columns visitors are allowed to read (price is admin-only).
+export const PUBLIC_PRODUCT_COLS = "id,category,name,sizes,images,description,variant_label,variants,created_at";
 
 export type ProductRow = {
   id: string;
   category: string;
   name: string;
-  price: number;
-  sale_price: number | null;
+  price?: number;
   sizes: string[];
   images: string[];
   description: string;
@@ -41,18 +47,29 @@ export type OrderRow = {
   total_price: number;
   status: OrderStatus;
   packaging: PackagingType | null;
-  promo_code: string | null;
 };
 
-export type PromoDiscountType = "percent" | "sale_price";
-export type PromoCodeRow = {
-  id: string;
-  code: string;
-  is_active: boolean;
-  discount_type: PromoDiscountType;
-  discount_percent: number | null;
-  created_at?: string;
-};
+// Compact storage format for order items: {p:id, q:qty, s?:size, v?:variant, n?:name, r?:price}
+export type CompactItem = { p: string; q: number; s?: string; v?: string; n?: string; r?: number };
+
+export function encodeItem(i: Partial<CartItemPersisted> & { productId: string; qty: number }): CompactItem {
+  const o: CompactItem = { p: i.productId, q: i.qty };
+  if (i.size) o.s = i.size;
+  if (i.variant) o.v = i.variant;
+  if (i.name) o.n = i.name;
+  if (i.price != null) o.r = Number(i.price);
+  return o;
+}
+
+export function decodeItem(c: CompactItem | CartItemPersisted): CartItemPersisted {
+  if ("productId" in c) return c; // legacy format
+  return { productId: c.p, qty: c.q, size: c.s, variant: c.v, name: c.n ?? "?", price: Number(c.r ?? 0) };
+}
+
+export function decodeOrder(row: Record<string, unknown>): OrderRow {
+  const items = Array.isArray(row.items) ? (row.items as CompactItem[]).map(decodeItem) : [];
+  return { ...(row as unknown as OrderRow), items, total_price: Number(row.total_price ?? 0) };
+}
 
 export const ORDER_STATUSES = ["Новый", "Связались", "Оплачен", "Собран", "Вручен"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
