@@ -10,7 +10,9 @@ import {
   Plus,
   Settings as SettingsIcon,
   ShoppingBag,
-  Ticket,
+  ClipboardCheck,
+  Copy,
+  Check,
   Trash2,
   Upload,
   X,
@@ -32,8 +34,8 @@ import {
   formatMoney,
   type OrderRow,
   type ProductRow,
-  type PromoCodeRow,
-  type PromoDiscountType,
+  decodeOrder,
+  encodeItem,
   type PackagingType,
   type CartItemPersisted,
 } from "../lib/supabase";
@@ -46,6 +48,8 @@ import {
   type SiteContent,
   type HeroSlide,
 } from "../lib/settings";
+import { buildOrderMessage } from "../lib/orderMessage";
+import { AssemblyTab } from "../components/AssemblyTab";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
 import { manualBackupDownload, restoreBackup } from "../lib/backup";
 import {
@@ -57,7 +61,7 @@ import {
 import { PUBLIC_IMAGES, publicImageUrl, catSlug } from "../lib/publicImages";
 
 
-type Tab = "orders" | "products" | "analytics" | "promo" | "settings" | "logs" | "orderlogs";
+type Tab = "orders" | "assembly" | "products" | "analytics" | "settings" | "logs" | "orderlogs";
 
 export default function Admin() {
   const [session, setSession] = useState<Session | null>(null);
@@ -150,9 +154,9 @@ function AdminApp({ email }: { email: string }) {
 
   const tabs: { id: Tab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
     { id: "orders", label: "Заказы", icon: ShoppingBag },
+    { id: "assembly", label: "Сборка", icon: ClipboardCheck },
     { id: "products", label: "Товары", icon: Package },
     { id: "analytics", label: "Аналитика", icon: BarChart3 },
-    { id: "promo", label: "Промокоды", icon: Ticket },
     { id: "settings", label: "Настройки", icon: SettingsIcon },
     { id: "logs", label: "Логи", icon: ScrollText },
     { id: "orderlogs", label: "Логи заказов", icon: ShoppingBag },
@@ -199,7 +203,7 @@ function AdminApp({ email }: { email: string }) {
         {tab === "orders" && <OrdersTab actor={email} />}
         {tab === "products" && <ProductsTab actor={email} />}
         {tab === "analytics" && <AnalyticsTab />}
-        {tab === "promo" && <PromoTab actor={email} />}
+        {tab === "assembly" && <AssemblyTab actor={email} />}
         {tab === "settings" && <SettingsTab actor={email} />}
         {tab === "logs" && <LogsTab />}
         {tab === "orderlogs" && <OrderLogsTab />}
@@ -217,7 +221,7 @@ function OrdersTab({ actor }: { actor: string }) {
   const [editing, setEditing] = useState<OrderRow | null>(null);
 
   const reload = () =>
-    supabase.from("orders").select("*").then(({ data }) => setOrders((data ?? []) as OrderRow[]));
+    supabase.from("orders").select("*").then(({ data }) => setOrders((data ?? []).map(decodeOrder)));
 
   useEffect(() => {
     reload();
@@ -258,6 +262,16 @@ function OrdersTab({ actor }: { actor: string }) {
     writeLog(actor, "Упаковка заказа", `${o.client_name}: ${packaging}`);
   };
 
+  const { content } = useSettings();
+  const copyMessage = async (o: OrderRow) => {
+    try {
+      await navigator.clipboard.writeText(buildOrderMessage(content.orderMessageTemplate, o));
+      toast.success("Сообщение скопировано");
+    } catch {
+      toast.error("Не удалось скопировать");
+    }
+  };
+
   const remove = async (o: OrderRow) => {
     if (!confirm(`Удалить заказ ${o.client_name}?`)) return;
     const { error } = await supabase.from("orders").delete().eq("id", o.id);
@@ -276,7 +290,6 @@ function OrdersTab({ actor }: { actor: string }) {
       "total_price",
       "status",
       "packaging",
-      "promo_code",
     ];
     const rows = orders.map((o) =>
       [
@@ -293,7 +306,6 @@ function OrdersTab({ actor }: { actor: string }) {
         String(o.total_price),
         o.status,
         o.packaging ?? "",
-        o.promo_code ?? "",
       ]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
@@ -367,7 +379,6 @@ function OrdersTab({ actor }: { actor: string }) {
                 <div className="mt-1 font-mono text-xs text-muted-foreground">{o.client_contact}</div>
                 <div className="mt-1 font-mono text-[11px] text-muted-foreground">
                   {new Date(o.created_at).toLocaleString("ru-RU")}
-                  {o.promo_code ? ` · промо: ${o.promo_code}` : ""}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -401,6 +412,14 @@ function OrdersTab({ actor }: { actor: string }) {
                     </option>
                   ))}
                 </select>
+                {o.status === "Новый" && (
+                  <button
+                    onClick={() => copyMessage(o)}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                  >
+                    <Copy size={12} /> Скопировать сообщение
+                  </button>
+                )}
                 <button
                   onClick={() => setEditing(o)}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-foreground"
@@ -489,7 +508,7 @@ function OrderEditModal({
       {
         productId: p.id,
         name: p.name,
-        price: p.price,
+        price: p.price ?? 0,
         qty: 1,
         size: p.sizes[0],
         variant: p.variants?.[0],
@@ -502,7 +521,7 @@ function OrderEditModal({
     setSaving(true);
     const { error } = await supabase
       .from("orders")
-      .update({ items, total_price: total })
+      .update({ items: items.map(encodeItem), total_price: total })
       .eq("id", order.id);
     setSaving(false);
     if (error) return toast.error(error.message);
@@ -596,7 +615,7 @@ function OrderEditModal({
             <option value="">— выбрать —</option>
             {products.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} ({formatMoney(p.price)})
+                {p.name} ({formatMoney(p.price ?? 0)})
               </option>
             ))}
           </select>
@@ -633,7 +652,6 @@ type ProductDraft = {
   category: string;
   name: string;
   price: number;
-  sale_price: number | null;
   sizes: string[];
   images: string[];
   description: string;
@@ -674,7 +692,6 @@ function ProductsTab({ actor }: { actor: string }) {
       category: categories[0] ?? "Футболки",
       name: "",
       price: 0,
-      sale_price: null,
       sizes: [],
       images: [],
       description: "",
@@ -687,8 +704,7 @@ function ProductsTab({ actor }: { actor: string }) {
       id: p.id,
       category: p.category,
       name: p.name,
-      price: p.price,
-      sale_price: p.sale_price,
+      price: p.price ?? 0,
       sizes: p.sizes,
       images: p.images,
       description: p.description,
@@ -767,14 +783,7 @@ function ProductsTab({ actor }: { actor: string }) {
                 </td>
                 <td className="p-3 font-mono text-xs">{p.category}</td>
                 <td className="p-3 font-mono text-xs">
-                  {p.sale_price != null ? (
-                    <div className="flex flex-col">
-                      <span className="text-red-400">{formatMoney(p.sale_price)}</span>
-                      <span className="text-muted-foreground line-through">{formatMoney(p.price)}</span>
-                    </div>
-                  ) : (
-                    <span>{formatMoney(p.price)}</span>
-                  )}
+                  <span>{formatMoney(p.price ?? 0)}</span>
                 </td>
                 <td className="p-3 font-mono text-xs text-muted-foreground">
                   {p.sizes.join(", ") || "—"}
@@ -938,19 +947,9 @@ function ProductModal({
               className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
             />
           </div>
-          <div>
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Акционная цена, BYN (опц.)
-            </label>
-            <input
-              type="number"
-              value={d.sale_price ?? ""}
-              onChange={(e) => setD({ ...d, sale_price: e.target.value ? Number(e.target.value) : null })}
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
-            />
-          </div>
-
           <div className="sm:col-span-2">
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Размеры          <div className="sm:col-span-2">
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               Размеры (через запятую)
             </label>
@@ -1092,7 +1091,7 @@ function AnalyticsTab() {
   const [sortKey, setSortKey] = useState<SortKey>("qty");
 
   useEffect(() => {
-    supabase.from("orders").select("*").then(({ data }) => setOrders((data ?? []) as OrderRow[]));
+    supabase.from("orders").select("*").then(({ data }) => setOrders((data ?? []).map(decodeOrder)));
     supabase.from("products").select("*").then(({ data }) => setProducts((data ?? []) as ProductRow[]));
   }, []);
 
@@ -1134,11 +1133,7 @@ function AnalyticsTab() {
     const total = orders.reduce((a, b) => a + Number(b.total_price), 0);
     const count = orders.length;
     const avg = count ? total / count : 0;
-    const saleTotal = orders.reduce(
-      (a, o) => a + (o.promo_code ? Number(o.total_price) : 0),
-      0,
-    );
-    return { total, count, avg, saleTotal };
+    return { total, count, avg };
   }, [orders]);
 
   const packagingCounts = useMemo(() => {
@@ -1169,7 +1164,6 @@ function AnalyticsTab() {
         <h2 className="text-lg font-bold">Финансовая аналитика</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-4">
           <Stat label="Общая выручка" value={formatMoney(finance.total)} />
-          <Stat label="По акционным заказам" value={formatMoney(finance.saleTotal)} />
           <Stat label="Средний чек" value={formatMoney(Math.round(finance.avg))} />
           <Stat label="Всего заказов" value={String(finance.count)} />
         </div>
@@ -1275,168 +1269,6 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 // ============= PROMO =============
-function PromoTab({ actor }: { actor: string }) {
-  const [codes, setCodes] = useState<PromoCodeRow[]>([]);
-  const [newCode, setNewCode] = useState("");
-  const [newType, setNewType] = useState<PromoDiscountType>("sale_price");
-  const [newPercent, setNewPercent] = useState<number>(10);
-
-  const reload = () =>
-    supabase
-      .from("promo_codes")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => setCodes((data ?? []) as PromoCodeRow[]));
-
-  useEffect(() => {
-    reload();
-  }, []);
-
-  const add = async () => {
-    if (!newCode.trim()) return;
-    const code = newCode.trim().toUpperCase();
-    if (newType === "percent" && (!newPercent || newPercent <= 0 || newPercent > 100)) {
-      return toast.error("Укажите процент скидки (1–100)");
-    }
-    const { error } = await supabase.from("promo_codes").insert({
-      code,
-      is_active: true,
-      discount_type: newType,
-      discount_percent: newType === "percent" ? newPercent : null,
-    });
-    if (error) return toast.error(error.message);
-    writeLog(
-      actor,
-      "Создание промокода",
-      `${code} · ${newType === "percent" ? `−${newPercent}%` : "sale_price"}`,
-    );
-    setNewCode("");
-    reload();
-    toast.success("Промокод создан");
-  };
-
-  const toggle = async (p: PromoCodeRow) => {
-    await supabase.from("promo_codes").update({ is_active: !p.is_active }).eq("id", p.id);
-    writeLog(actor, "Промокод: активность", `${p.code} → ${!p.is_active}`);
-    reload();
-  };
-
-  const remove = async (p: PromoCodeRow) => {
-    if (!confirm(`Удалить ${p.code}?`)) return;
-    await supabase.from("promo_codes").delete().eq("id", p.id);
-    writeLog(actor, "Удаление промокода", p.code);
-    reload();
-  };
-
-  return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <h1 className="text-3xl font-bold tracking-tight">Промокоды</h1>
-
-      <div className="mt-6 rounded-lg border border-border bg-card p-4">
-        <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          Новый промокод
-        </div>
-
-        <div className="mt-3 flex gap-2">
-          <input
-            value={newCode}
-            onChange={(e) => setNewCode(e.target.value)}
-            placeholder="OKDX10"
-            className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm uppercase"
-          />
-          <button
-            onClick={add}
-            className="rounded-md bg-white px-4 font-mono text-xs uppercase tracking-widest text-black"
-          >
-            <Plus size={14} className="inline" /> Добавить
-          </button>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3">
-            <input
-              type="radio"
-              name="promo-type"
-              checked={newType === "sale_price"}
-              onChange={() => setNewType("sale_price")}
-              className="mt-1 accent-white"
-            />
-            <div>
-              <div className="font-mono text-xs font-bold">По акционной цене</div>
-              <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                Цена товара становится равной его sale_price (если задан).
-              </div>
-            </div>
-          </label>
-          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3">
-            <input
-              type="radio"
-              name="promo-type"
-              checked={newType === "percent"}
-              onChange={() => setNewType("percent")}
-              className="mt-1 accent-white"
-            />
-            <div className="flex-1">
-              <div className="font-mono text-xs font-bold">Процент скидки</div>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={newPercent}
-                  onChange={(e) => setNewPercent(Number(e.target.value))}
-                  disabled={newType !== "percent"}
-                  className="w-20 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs disabled:opacity-50"
-                />
-                <span className="font-mono text-xs text-muted-foreground">% от базовой цены</span>
-              </div>
-            </div>
-          </label>
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-2">
-        {codes.map((c) => (
-          <div
-            key={c.id}
-            className="flex items-center justify-between rounded-lg border border-border bg-card p-4"
-          >
-            <div>
-              <div className="font-mono font-bold">{c.code}</div>
-              <div className="font-mono text-xs text-muted-foreground">
-                {c.is_active ? "Активен" : "Отключён"} ·{" "}
-                {c.discount_type === "percent"
-                  ? `−${c.discount_percent ?? 0}%`
-                  : "Акционная цена"}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => toggle(c)}
-                className="rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-muted"
-              >
-                {c.is_active ? "Отключить" : "Включить"}
-              </button>
-              <button
-                onClick={() => remove(c)}
-                className="rounded-md border border-border p-2 text-muted-foreground hover:text-red-400"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
-        {codes.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border p-10 text-center font-mono text-sm text-muted-foreground">
-            Промокодов пока нет
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============= SETTINGS =============
 function SettingsTab({ actor }: { actor: string }) {
   const { preorderClosed, content } = useSettings();
   const [saving, setSaving] = useState(false);
@@ -1543,21 +1375,6 @@ function SettingsTab({ actor }: { actor: string }) {
     else {
       writeLog(actor, "Очистка БД", "orders");
       toast.success("Все заказы удалены");
-    }
-    setBusy(null);
-  };
-
-  const clearPromoDb = async () => {
-    if (!confirm("Удалить ВСЕ промокоды?")) return;
-    setBusy("promo");
-    const { error } = await supabase
-      .from("promo_codes")
-      .delete()
-      .not("id", "is", null);
-    if (error) toast.error(error.message);
-    else {
-      writeLog(actor, "Очистка БД", "promo_codes");
-      toast.success("Промокоды удалены");
     }
     setBusy(null);
   };
@@ -1752,6 +1569,21 @@ function SettingsTab({ actor }: { actor: string }) {
             value={draft.cartConfirm2}
             onChange={(v) => setDraft({ ...draft, cartConfirm2: v })}
           />
+          <div>
+            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Шаблон сообщения покупателю
+            </label>
+            <textarea
+              value={draft.orderMessageTemplate}
+              onChange={(e) => setDraft({ ...draft, orderMessageTemplate: e.target.value })}
+              rows={8}
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
+            />
+            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+              Подстановки: {"{name}"} — ФИО, {"{items}"} — список товаров, {"{total}"} — итог, {"{contact}"} — контакты,
+              {" {packaging}"} — упаковка.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1759,7 +1591,7 @@ function SettingsTab({ actor }: { actor: string }) {
       <div className="mt-6 rounded-lg border border-border bg-card p-6">
         <div className="font-bold">Резервная копия</div>
         <p className="mt-1 font-mono text-xs text-muted-foreground">
-          Скачать JSON со всеми товарами, заказами и промокодами. Восстановление вставит
+          Скачать JSON со всеми товарами и заказами. Восстановление вставит
           записи через upsert (существующие ID перезапишутся).
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -1833,13 +1665,6 @@ function SettingsTab({ actor }: { actor: string }) {
             className="inline-flex items-center justify-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 font-mono text-xs uppercase tracking-widest text-red-300 hover:bg-red-500/20 disabled:opacity-50"
           >
             <Trash2 size={14} /> {busy === "orders" ? "…" : "Удалить все заказы (БД)"}
-          </button>
-          <button
-            onClick={clearPromoDb}
-            disabled={busy === "promo"}
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 font-mono text-xs uppercase tracking-widest text-red-300 hover:bg-red-500/20 disabled:opacity-50"
-          >
-            <Trash2 size={14} /> {busy === "promo" ? "…" : "Удалить все промокоды (БД)"}
           </button>
         </div>
       </div>
@@ -2042,7 +1867,6 @@ function OrderLogsTab() {
   const [query, setQuery] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [onlyPromo, setOnlyPromo] = useState(false);
 
   const load = () => {
     fetchRemoteOrderLogs().then(setOrders);
@@ -2059,14 +1883,13 @@ function OrderLogsTab() {
     const q = query.trim().toLowerCase();
     return orders.filter((o) => {
       if (o.ts < fromTs || o.ts > toTs) return false;
-      if (onlyPromo && !o.promo_code) return false;
       if (q) {
-        const hay = `${o.client_name} ${o.client_contact} ${o.promo_code ?? ""}`.toLowerCase();
+        const hay = `${o.client_name} ${o.client_contact}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [orders, query, dateFrom, dateTo, onlyPromo]);
+  }, [orders, query, dateFrom, dateTo]);
 
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(filtered, null, 2)], {
