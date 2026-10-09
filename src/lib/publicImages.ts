@@ -1,16 +1,7 @@
-// Files placed manually in /public/images/. Keep in sync with folder contents.
-export const PUBLIC_IMAGES = [
-  "logo.png",
-  "znachok.png",
-  "Instagram post - 2 (2) (2) (2).png",
-  "Настя 52 (2) (2).png",
-  "кружка эли мокап светлый (2).png",
-  "магнит (2) (2).png",
-  "хоровод (2) (2).png",
-  "цитата 11 (2) (2).png",
-  "цитата 21 (2) (2).png",
-  "цитата 31 (2) (2).png",
-] as const;
+// Auto-generated at build time from the contents of /public/images/.
+// @ts-expect-error virtual module provided by vite.config.ts
+import images from "virtual:public-images";
+export const PUBLIC_IMAGES: string[] = images;
 
 export function publicImageUrl(file: string): string {
   return encodeURI(`images/${file}`);
