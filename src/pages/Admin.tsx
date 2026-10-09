@@ -1935,15 +1935,6 @@ function OrderLogsTab() {
           onChange={(e) => setDateTo(e.target.value)}
           className="rounded-md border border-border bg-background px-2 py-2 font-mono text-xs"
         />
-        <label className="flex items-center gap-2 font-mono text-xs text-muted-foreground sm:col-span-4">
-          <input
-            type="checkbox"
-            checked={onlyPromo}
-            onChange={(e) => setOnlyPromo(e.target.checked)}
-            className="accent-white"
-          />
-          Только с промокодом
-        </label>
       </div>
 
       <div className="mt-4 font-mono text-[11px] text-muted-foreground">
@@ -1955,19 +1946,15 @@ function OrderLogsTab() {
           <div key={`${o.ts}-${i}`} className="rounded-md border border-border bg-card p-4">
             <div className="flex flex-wrap justify-between gap-2 font-mono text-[11px] text-muted-foreground">
               <span>{new Date(o.ts).toLocaleString("ru-RU")}</span>
-              <span>{formatMoney(o.total_price)}</span>
             </div>
             <div className="mt-1 text-sm font-bold">{o.client_name}</div>
             <div className="font-mono text-xs text-muted-foreground">{o.client_contact}</div>
-            {o.promo_code && (
-              <div className="mt-1 font-mono text-xs text-green-400">Промо: {o.promo_code}</div>
-            )}
             <ul className="mt-2 space-y-1 font-mono text-xs">
               {o.items.map((it, j) => (
                 <li key={j}>
                   • {it.name}
                   {it.size ? ` [${it.size}]` : ""}
-                  {it.variant ? ` (${it.variant})` : ""} × {it.qty} — {formatMoney(it.price * it.qty)}
+                  {it.variant ? ` (${it.variant})` : ""} × {it.qty}
                 </li>
               ))}
             </ul>
