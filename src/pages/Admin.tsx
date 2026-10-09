@@ -949,8 +949,6 @@ function ProductModal({
           </div>
           <div className="sm:col-span-2">
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Размеры          <div className="sm:col-span-2">
-            <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               Размеры (через запятую)
             </label>
             <input
