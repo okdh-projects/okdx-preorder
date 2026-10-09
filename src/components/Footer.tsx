@@ -29,7 +29,7 @@ export function Footer() {
             <Instagram size={14} /> По вопросам можно писать нам в директ
           </a>
           <div>{content.footerCopyright}</div>
-          <div>Не является интернет-магазином. Форма для сбора предзаказов</div>
+          <div>Форма для сбора ответов</div>
         </div>
       </div>
     </footer>
