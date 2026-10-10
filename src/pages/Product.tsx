@@ -107,8 +107,8 @@ export default function Product() {
   return (
     <Layout>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="mt-2 grid min-w-0 gap-8 lg:grid-cols-2">
-          <div className="relative overflow-hidden rounded-lg border border-border bg-neutral-900">
+        <div className="mt-2 grid min-w-0 items-start gap-8 lg:grid-cols-2">
+          <div className="relative self-start overflow-hidden rounded-lg border border-border bg-neutral-900">
             <div className="aspect-square">
               {imgs[imgIdx] ? (
                 <img
