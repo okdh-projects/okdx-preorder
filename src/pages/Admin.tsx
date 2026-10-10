@@ -881,6 +881,9 @@ function ProductModal({
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCat, setNewCat] = useState("");
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (draft.id) setD((current) => ({ ...current, id: draft.id }));
+  }, [draft.id]);
   const isValid = d.name.trim() && d.category.trim() && d.price > 0;
 
   return (
