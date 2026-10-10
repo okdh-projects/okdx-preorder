@@ -1,14 +1,16 @@
 import { supabase, encodeItem, decodeItem } from "./supabase";
 
 async function collectBackup() {
-  const [orders, products] = await Promise.all([
+  const [orders, products, charts] = await Promise.all([
     supabase.from("orders").select("*"),
     supabase.from("products").select("*"),
+    supabase.from("app_settings").select("key,value"),
   ]);
   return {
     created_at: new Date().toISOString(),
     orders: orders.data ?? [],
     products: products.data ?? [],
+    size_charts: (charts.data ?? []).filter((row) => /^[a-f\d]{32}$/i.test(row.key)),
   };
 }
 
@@ -40,6 +42,7 @@ export async function restoreBackup(json: string): Promise<string> {
     products?: unknown[];
     orders?: unknown[];
     promo_codes?: unknown[];
+    size_charts?: { key: string; value: string }[];
   };
   const products = Array.isArray(p.products) ? p.products : [];
   const orders = Array.isArray(p.orders) ? p.orders : [];
@@ -53,6 +56,13 @@ export async function restoreBackup(json: string): Promise<string> {
     const { error } = await supabase.from("products").upsert(cleanP as never);
     if (error) throw new Error(`products: ${error.message}`);
     results.push(`${products.length} товар(ов)`);
+  }
+  if (Array.isArray(p.size_charts) && p.size_charts.length) {
+    const charts = p.size_charts.filter((row) => typeof row.key === "string" && /^[a-f\d]{32}$/i.test(row.key) && typeof row.value === "string");
+    if (charts.length !== p.size_charts.length) throw new Error("Неверный формат размерных сеток");
+    const { error } = await supabase.from("app_settings").upsert(charts);
+    if (error) throw new Error(`Размерные сетки: ${error.message}`);
+    results.push(`${charts.length} размерных сеток`);
   }
   if (orders.length) {
     // Convert legacy orders to compact format, drop removed columns.

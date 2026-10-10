@@ -5,6 +5,8 @@ import { Layout } from "../components/Layout";
 import { supabase, type ProductRow, PUBLIC_PRODUCT_COLS } from "../lib/supabase";
 import { useCart } from "../lib/store";
 import { fetchSettings, useSettings } from "../lib/settings";
+import { fetchSizeChart, type SizeChart } from "../lib/sizeChart";
+import { SizeChartTable } from "../components/SizeChart";
 
 export default function Product() {
   const { id } = useParams();
@@ -18,6 +20,21 @@ export default function Product() {
   const [imgIdx, setImgIdx] = useState(0);
   const [size, setSize] = useState<string | undefined>();
   const [variant, setVariant] = useState<string | undefined>();
+  const [sizeChart, setSizeChart] = useState<SizeChart | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    setSizeChart(null);
+    const load = () => fetchSizeChart(id).then((chart) => {
+      if (active) setSizeChart(chart);
+    }).catch(() => { if (active) setSizeChart(null); });
+    load();
+    const channel = supabase.channel(`size-chart-${id}`).on("postgres_changes", {
+      event: "*", schema: "public", table: "app_settings", filter: `key=eq.${id.replaceAll("-", "")}`,
+    }, load).subscribe();
+    return () => { active = false; supabase.removeChannel(channel); };
+  }, [id]);
 
   useEffect(() => {
     fetchSettings();
@@ -90,7 +107,7 @@ export default function Product() {
   return (
     <Layout>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="mt-2 grid gap-8 lg:grid-cols-2">
+        <div className="mt-2 grid min-w-0 gap-8 lg:grid-cols-2">
           <div className="relative overflow-hidden rounded-lg border border-border bg-neutral-900">
             <div className="aspect-square">
               {imgs[imgIdx] ? (
@@ -122,7 +139,7 @@ export default function Product() {
             )}
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               {product.category}
             </div>
@@ -194,6 +211,7 @@ export default function Product() {
                 Перейти в корзину →
               </button>
             )}
+            <SizeChartTable chart={sizeChart} />
           </div>
         </div>
       </div>
