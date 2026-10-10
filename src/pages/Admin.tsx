@@ -50,6 +50,8 @@ import {
 } from "../lib/settings";
 import { buildOrderMessage } from "../lib/orderMessage";
 import { AssemblyTab } from "../components/AssemblyTab";
+import { SizeChartEditor } from "../components/SizeChart";
+import { fetchSizeChart, saveSizeChart, type SizeChart } from "../lib/sizeChart";
 import { readLogs, writeLog, type AdminLog } from "../lib/logs";
 import { manualBackupDownload, restoreBackup } from "../lib/backup";
 import {
@@ -657,6 +659,7 @@ type ProductDraft = {
   description: string;
   variant_label: string | null;
   variants: string[] | null;
+  sizeChart: SizeChart | null;
 };
 
 function ProductsTab({ actor }: { actor: string }) {
@@ -697,9 +700,17 @@ function ProductsTab({ actor }: { actor: string }) {
       description: "",
       variant_label: null,
       variants: null,
+      sizeChart: null,
     });
 
-  const startEdit = (p: ProductRow) =>
+  const startEdit = async (p: ProductRow) => {
+    let sizeChart: SizeChart | null;
+    try {
+      sizeChart = await fetchSizeChart(p.id);
+    } catch {
+      toast.error("Не удалось загрузить размерную сетку. Попробуйте ещё раз.");
+      return;
+    }
     setEditing({
       id: p.id,
       category: p.category,
@@ -710,20 +721,31 @@ function ProductsTab({ actor }: { actor: string }) {
       description: p.description,
       variant_label: p.variant_label,
       variants: p.variants,
+      sizeChart,
     });
+  };
 
   const save = async (d: ProductDraft) => {
+    const { sizeChart, ...product } = d;
+    const id = d.id ?? crypto.randomUUID();
     if (d.id) {
-      const { error } = await supabase.from("products").update(d).eq("id", d.id);
+      const { error } = await supabase.from("products").update(product).eq("id", d.id);
       if (error) return toast.error(error.message);
       writeLog(actor, "Изменение товара", d.name);
-      toast.success("Товар обновлён");
     } else {
-      const { error } = await supabase.from("products").insert(d);
+      const { error } = await supabase.from("products").insert({ ...product, id });
       if (error) return toast.error(error.message);
+      setEditing({ ...d, id });
       writeLog(actor, "Добавление товара", d.name);
-      toast.success("Товар добавлен");
     }
+    try {
+      await saveSizeChart(id, sizeChart);
+    } catch {
+      toast.error("Товар сохранён, но размерная сетка не сохранилась. Нажмите «Сохранить» ещё раз.");
+      return;
+    }
+    toast.success(d.id ? "Товар обновлён" : "Товар добавлен");
+    reload();
     setEditing(null);
   };
 
@@ -731,6 +753,11 @@ function ProductsTab({ actor }: { actor: string }) {
     if (!confirm(`Удалить «${p.name}»?`)) return;
     const { error } = await supabase.from("products").delete().eq("id", p.id);
     if (error) return toast.error(error.message);
+    try {
+      await saveSizeChart(p.id, null);
+    } catch {
+      toast.error("Товар удалён, но не удалось удалить его размерную сетку.");
+    }
     writeLog(actor, "Удаление товара", p.name);
     toast.success("Удалено");
   };
@@ -848,11 +875,15 @@ function ProductModal({
   draft: ProductDraft;
   categories: string[];
   onClose: () => void;
-  onSave: (d: ProductDraft) => void;
+  onSave: (d: ProductDraft) => Promise<unknown>;
 }) {
   const [d, setD] = useState<ProductDraft>(draft);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCat, setNewCat] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (draft.id) setD((current) => ({ ...current, id: draft.id }));
+  }, [draft.id]);
   const isValid = d.name.trim() && d.category.trim() && d.price > 0;
 
   return (
@@ -1028,6 +1059,10 @@ function ProductModal({
             />
           </div>
 
+          <div className="min-w-0 sm:col-span-2">
+            <SizeChartEditor value={d.sizeChart} onChange={(sizeChart) => setD({ ...d, sizeChart })} />
+          </div>
+
           <div className="sm:col-span-2">
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Описание</label>
             <textarea
@@ -1047,11 +1082,18 @@ function ProductModal({
             Отмена
           </button>
           <button
-            onClick={() => onSave(d)}
-            disabled={!isValid}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave(d);
+              } finally {
+                setSaving(false);
+              }
+            }}
+            disabled={!isValid || saving}
             className="rounded-md bg-white px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest text-black disabled:opacity-50"
           >
-            Сохранить
+            {saving ? "Сохранение…" : "Сохранить"}
           </button>
         </div>
       </div>
