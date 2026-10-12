@@ -11,7 +11,6 @@ export type SiteContent = {
   footerTagline: string;
   footerCopyright: string;
   cartConfirm1: string;
-  cartConfirm2: string;
   orderMessageTemplate: string;
   gallerySliderTitle?: string;
   gallerySliderSubtitle?: string;
@@ -30,9 +29,11 @@ export const DEFAULT_CONTENT: SiteContent = {
   footerTagline: "Ограниченные дропы. Только свой мерч.",
   footerCopyright: "© 2024 OKDX.Merch",
   cartConfirm1: "Я подтверждаю правильность заказа и введённых данных",
-  cartConfirm2: "Я согласен на обработку введённых мною персональных данных",
   orderMessageTemplate:
     "Здравствуйте, {name}!\n\nВаш заказ в OKDX.Merch:\n{items}\n\nИтого к оплате: {total}\n\nПодтвердите, пожалуйста, что всё верно.",
+  gallerySliderTitle: "",
+  gallerySliderSubtitle: "",
+  gallerySliderImages: ["images/merchhedely.jpg"],
 };
 
 type SettingsState = {

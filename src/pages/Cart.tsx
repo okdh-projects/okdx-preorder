@@ -29,7 +29,6 @@ export default function Cart() {
   const [submitting, setSubmitting] = useState(false);
 
   const [confirmOrder, setConfirmOrder] = useState(false);
-  const [consentPd, setConsentPd] = useState(false);
   const [captcha, setCaptcha] = useState(makeCaptcha());
   const [captchaAnswer, setCaptchaAnswer] = useState("");
 
@@ -44,7 +43,6 @@ export default function Cart() {
     telegram.trim().length > 2 &&
     phone.trim().length >= 10 &&
     confirmOrder &&
-    consentPd &&
     captchaOk &&
     !submitting;
 
@@ -75,7 +73,6 @@ export default function Cart() {
     setTelegram("");
     setPhone("");
     setConfirmOrder(false);
-    setConsentPd(false);
     setCaptcha(makeCaptcha());
     setCaptchaAnswer("");
     toast.success("Заказ оформлен!", { description: "Мы напишем вам в Telegram." });
@@ -255,15 +252,6 @@ export default function Cart() {
                     className="mt-0.5 h-4 w-4 accent-white"
                   />
                   <span>{content.cartConfirm1}</span>
-                </label>
-                <label className="flex items-start gap-2 font-mono text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={consentPd}
-                    onChange={(e) => setConsentPd(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 accent-white"
-                  />
-                  <span>{content.cartConfirm2}</span>
                 </label>
 
 
