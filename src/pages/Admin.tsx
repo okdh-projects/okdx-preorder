@@ -2059,7 +2059,7 @@ function ImageInput({
   onChange: (v: string) => void;
   onRemove?: () => void;
 }) {
-  const isPublic = value.startsWith("/images/") || value.startsWith("./images/");
+  const isPublic = value.startsWith("images/") || value.startsWith("/images/") || value.startsWith("./images/");
   const currentLocal = isPublic
     ? PUBLIC_IMAGES.find((f) => value.endsWith(f)) ?? ""
     : "";
