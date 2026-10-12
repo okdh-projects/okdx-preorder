@@ -1590,6 +1590,48 @@ function SettingsTab({ actor }: { actor: string }) {
             onChange={(v) => setDraft({ ...draft, preorderButton: v })}
           />
           <TextField
+            label="Нижний слайдер: заголовок"
+            value={draft.gallerySliderTitle ?? ""}
+            onChange={(v) => setDraft({ ...draft, gallerySliderTitle: v })}
+          />
+          <TextField
+            label="Нижний слайдер: подзаголовок"
+            value={draft.gallerySliderSubtitle ?? ""}
+            onChange={(v) => setDraft({ ...draft, gallerySliderSubtitle: v })}
+          />
+          <div className="space-y-2">
+            <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Нижний слайдер: фотографии ({(draft.gallerySliderImages ?? []).length})
+            </div>
+            {(draft.gallerySliderImages ?? []).map((img, idx) => (
+              <ImageInput
+                key={idx}
+                value={img}
+                onChange={(v) =>
+                  setDraft({
+                    ...draft,
+                    gallerySliderImages: (draft.gallerySliderImages ?? []).map((x, i) => (i === idx ? v : x)),
+                  })
+                }
+                onRemove={() =>
+                  setDraft({
+                    ...draft,
+                    gallerySliderImages: (draft.gallerySliderImages ?? []).filter((_, i) => i !== idx),
+                  })
+                }
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() =>
+                setDraft({ ...draft, gallerySliderImages: [...(draft.gallerySliderImages ?? []), ""] })
+              }
+              className="rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-widest hover:bg-secondary"
+            >
+              + Добавить фото
+            </button>
+          </div>
+          <TextField
             label="Футер: слоган"
             value={draft.footerTagline}
             onChange={(v) => setDraft({ ...draft, footerTagline: v })}
