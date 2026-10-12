@@ -13,6 +13,9 @@ export type SiteContent = {
   cartConfirm1: string;
   cartConfirm2: string;
   orderMessageTemplate: string;
+  gallerySliderTitle?: string;
+  gallerySliderSubtitle?: string;
+  gallerySliderImages?: string[];
 };
 
 export const DEFAULT_CONTENT: SiteContent = {

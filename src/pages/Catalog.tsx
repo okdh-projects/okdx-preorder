@@ -120,6 +120,68 @@ function Hero() {
   );
 }
 
+function GallerySlider() {
+  const { content } = useSettings();
+  const imgs = (content.gallerySliderImages ?? []).filter((x) => x.trim());
+  const title = content.gallerySliderTitle?.trim();
+  const subtitle = content.gallerySliderSubtitle?.trim();
+  const [i, setI] = useState(0);
+
+  useEffect(() => {
+    if (imgs.length <= 1) return;
+    const t = window.setInterval(() => setI((v) => (v + 1) % imgs.length), 5000);
+    return () => window.clearInterval(t);
+  }, [imgs.length]);
+
+  if (!imgs.length && !title && !subtitle) return null;
+  const cur = imgs[i % Math.max(imgs.length, 1)];
+
+  return (
+    <section className="mt-16">
+      {(title || subtitle) && (
+        <div className="mb-6 text-center">
+          {title && <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h2>}
+          {subtitle && <p className="mt-2 font-mono text-sm text-muted-foreground">{subtitle}</p>}
+        </div>
+      )}
+      {imgs.length > 0 && (
+        <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+          <div className="aspect-[16/7] w-full">
+            <img key={cur} src={cur} alt="" className="h-full w-full object-cover" />
+          </div>
+          {imgs.length > 1 && (
+            <>
+              <button
+                onClick={() => setI((i - 1 + imgs.length) % imgs.length)}
+                className="absolute left-3 top-1/2 -translate-y-1/2 rounded-md border border-white/40 bg-black/40 p-2 text-white/80 backdrop-blur hover:text-white"
+                aria-label="Назад"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                onClick={() => setI((i + 1) % imgs.length)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-white/40 bg-black/40 p-2 text-white/80 backdrop-blur hover:text-white"
+                aria-label="Вперёд"
+              >
+                <ChevronRight size={18} />
+              </button>
+              <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
+                {imgs.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setI(idx)}
+                    className={`h-1 w-8 rounded-full ${idx === i % imgs.length ? "bg-white" : "bg-white/30"}`}
+                    aria-label={`Фото ${idx + 1}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 
 export function ProductCard({ p }: { p: ProductRow }) {
@@ -301,6 +363,8 @@ export default function Catalog() {
             </div>
           </section>
         ))}
+
+        <GallerySlider />
       </div>
     </Layout>
   );
