@@ -1646,11 +1646,6 @@ function SettingsTab({ actor }: { actor: string }) {
             value={draft.cartConfirm1}
             onChange={(v) => setDraft({ ...draft, cartConfirm1: v })}
           />
-          <TextField
-            label="Корзина: чекбокс #2"
-            value={draft.cartConfirm2}
-            onChange={(v) => setDraft({ ...draft, cartConfirm2: v })}
-          />
           <div>
             <label className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               Шаблон сообщения покупателю

@@ -318,6 +318,9 @@ export default function Catalog() {
     return (
       <Layout>
         <PreorderClosed />
+        <div className="mx-auto max-w-6xl px-4 pb-10 sm:px-6">
+          <GallerySlider />
+        </div>
       </Layout>
     );
   }
